@@ -138,6 +138,18 @@ Netlify. HTTPS is automatic.
   lawyer review them.
 - Confirm the WhatsApp and support numbers are yours, not the placeholders.
 
+## Rate limiting
+
+Every public form — signup, login, booking, quote — is rate limited. Counters
+live in the database, not in memory, because the app runs on serverless
+instances that don't share state: an in-process counter would reset on each
+cold start and be bypassed by hitting a different instance.
+
+Limits are set in `src/lib/rateLimit.ts`. The per-phone rules do the precise
+work; the per-IP rules are deliberately loose, because most Indian mobile
+traffic arrives through carrier-grade NAT and a tight per-IP limit would lock
+out unrelated customers who happen to share an address.
+
 ## Known gaps
 
 - **Passwords, not OTP.** Phone-number login normally uses an SMS OTP in India,
@@ -145,7 +157,6 @@ Netlify. HTTPS is automatic.
   Until then accounts use a password, and there is no password-reset flow.
 - **No technician assignment.** Bookings have a status but no assignee.
 - **No GST invoicing.**
-- **No rate limiting** on signup or booking submission.
 
 ## Tests
 
@@ -153,6 +164,10 @@ Netlify. HTTPS is automatic.
 total, pincode acceptance and rejection, booking creation, the WhatsApp link,
 signup, admin sign-in, a status transition reaching the customer's tracking
 page, and a price edit reaching the storefront.
+
+`tests/rate-limit.mjs` hammers the login form to prove the limits hold: that a
+flood is blocked, that the correct password is blocked too while the block
+lasts, and that a different phone number still signs in.
 
 ```bash
 npm run build && npm start     # in one terminal, on port 3000

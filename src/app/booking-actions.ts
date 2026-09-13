@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { normalisePhone, isValidPhone } from "@/lib/format";
 import { notifyBookingCreated } from "@/lib/notify";
+import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
 
 export type BookingState = { error?: string };
 
@@ -59,6 +60,11 @@ export async function createBookingAction(
 
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const input = parsed.data;
+
+  // Bookings take no payment, so nothing else stops a script from filling the
+  // technicians' day with jobs that don't exist.
+  const limit = await checkRateLimit("booking", normalisePhone(input.customerPhone));
+  if (!limit.allowed) return { error: rateLimitMessage(limit) };
 
   const area = await db.serviceArea.findUnique({ where: { pincode: input.pincode } });
   if (!area || !area.active) {
@@ -154,6 +160,9 @@ export async function createQuoteRequestAction(
   });
 
   if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const limit = await checkRateLimit("quote");
+  if (!limit.allowed) return { error: rateLimitMessage(limit) };
 
   await db.quoteRequest.create({
     data: {

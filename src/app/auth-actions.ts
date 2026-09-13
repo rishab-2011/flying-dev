@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { normalisePhone, isValidPhone } from "@/lib/format";
 import { createSession, destroySession, hashPassword, verifyPassword } from "@/lib/auth";
+import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
 
 export type AuthState = { error?: string };
 
@@ -19,6 +20,9 @@ export async function signupAction(
   _prev: AuthState,
   formData: FormData
 ): Promise<AuthState> {
+  const limit = await checkRateLimit("signup");
+  if (!limit.allowed) return { error: rateLimitMessage(limit) };
+
   const parsed = signupSchema.safeParse({
     name: formData.get("name"),
     phone: formData.get("phone"),
@@ -66,6 +70,12 @@ export async function loginAction(
   if (!isValidPhone(phone) || !password) {
     return { error: "Enter your mobile number and password" };
   }
+
+  // Checked before the password comparison: bcrypt is deliberately slow, so an
+  // unlimited login endpoint is both a brute-force hole and a way to tie up the
+  // server with expensive work.
+  const limit = await checkRateLimit("login", phone);
+  if (!limit.allowed) return { error: rateLimitMessage(limit) };
 
   const user = await db.user.findUnique({ where: { phone } });
   // One message for both cases, so this can't be used to discover who has an account.
