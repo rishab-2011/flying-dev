@@ -1,0 +1,167 @@
+// Flying Dev — phone repair booking platform (Delhi NCR).
+//
+// SQLite is used for local development. Moving to Postgres is a provider
+// change here plus a fresh migration; no application code depends on it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  name      String
+  phone     String    @unique // 10-digit Indian mobile, no country code
+  email     String?
+  password  String // bcrypt hash
+  role      String    @default("CUSTOMER") // CUSTOMER | ADMIN
+  createdAt DateTime  @default(now())
+  bookings  Booking[]
+}
+
+model Brand {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  slug   String  @unique
+  // Sort order on the brand picker; lower shows first.
+  rank   Int     @default(100)
+  models Model[]
+}
+
+model Model {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String
+  releaseYear Int?
+  brand       Brand       @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  brandId     String
+  prices      PriceItem[]
+  bookings    Booking[]
+
+  @@unique([brandId, slug])
+}
+
+model Issue {
+  id     String      @id @default(cuid())
+  name   String      @unique
+  slug   String      @unique
+  // Short line shown under the issue name in the picker.
+  blurb  String
+  // Lucide-style icon key resolved by the UI.
+  icon   String      @default("wrench")
+  rank   Int         @default(100)
+  prices PriceItem[]
+}
+
+// One repair price for a (model, issue) pair. The spine of the catalogue:
+// the customer funnel reads it, the admin panel edits it.
+model PriceItem {
+  id             String  @id @default(cuid())
+  model          Model   @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  modelId        String
+  issue          Issue   @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  issueId        String
+  // Price in whole rupees.
+  price          Int
+  // Struck-through "market price" for the discount badge. Null hides it.
+  strikePrice    Int?
+  etaMinutes     Int     @default(60)
+  warrantyMonths Int     @default(6)
+  active         Boolean @default(true)
+
+  @@unique([modelId, issueId])
+}
+
+// A pincode Flying Dev will travel to, with the modes available there.
+model ServiceArea {
+  id            String  @id @default(cuid())
+  pincode       String  @unique
+  city          String // Delhi, Noida, Gurugram, ...
+  area          String
+  doorstep      Boolean @default(true)
+  pickupAndDrop Boolean @default(true)
+  active        Boolean @default(true)
+}
+
+model Booking {
+  id     String @id @default(cuid())
+  // Short human-facing code used on the tracking page, e.g. FD-7K2QX9.
+  ref    String @unique
+  status String @default("REQUESTED")
+  // REQUESTED -> CONFIRMED -> IN_PROGRESS -> READY -> COMPLETED | CANCELLED
+
+  // Bookings work without an account; a logged-in customer gets them linked.
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
+
+  customerName  String
+  customerPhone String
+  customerEmail String?
+
+  model       Model  @relation(fields: [modelId], references: [id])
+  modelId     String
+  // Denormalised so a later catalogue edit can't rewrite past bookings.
+  deviceLabel String
+
+  // Selected issues, priced at the moment of booking.
+  items BookingItem[]
+
+  mode        String // DOORSTEP | PICKUP_DROP
+  addressLine String
+  landmark    String?
+  pincode     String
+  city        String
+  slotDate    String // yyyy-mm-dd
+  slotWindow  String // "10:00-12:00"
+  notes       String?
+
+  // Rupee total of items at booking time. No payment is taken online.
+  totalAmount    Int
+  warrantyMonths Int @default(6)
+
+  adminNote String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notifications Notification[]
+}
+
+model BookingItem {
+  id        String  @id @default(cuid())
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId String
+  issueName String
+  price     Int
+}
+
+// An outbound message. Today every row is a WhatsApp click-to-chat link that a
+// human opens; when the Meta Cloud API is connected the same rows get sent
+// automatically and gain a providerId.
+model Notification {
+  id         String   @id @default(cuid())
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId  String
+  channel    String   @default("WHATSAPP")
+  template   String
+  toPhone    String
+  body       String
+  status     String   @default("PENDING") // PENDING | SENT | FAILED
+  providerId String?
+  createdAt  DateTime @default(now())
+}
+
+// "We don't list your model" enquiries from the funnel's dead end.
+model QuoteRequest {
+  id         String   @id @default(cuid())
+  name       String
+  phone      String
+  deviceText String
+  issueText  String
+  pincode    String?
+  handled    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
