@@ -7,3 +7,4 @@ out
 .env.local
 next-env.d.ts
 shots
+*.tsbuildinfo

@@ -1,0 +1,16 @@
+# Netlify build configuration.
+#
+# Netlify detects Next.js and installs @netlify/plugin-nextjs automatically;
+# this file pins the Node version and the build command.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Prisma's engines are fetched at install time; keep them in the build cache.
+  PRISMA_CLI_QUERY_ENGINE_TYPE = "library"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"

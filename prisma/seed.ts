@@ -164,61 +164,69 @@ async function main() {
     issueRows.set(issue.slug, row.id);
   }
 
-  let modelsAdded = 0;
-  let pricesAdded = 0;
+  // Everything below works in bulk. Seeding row by row means ~1,700 round
+  // trips, which is fine against a local file but takes minutes against a
+  // hosted database — slow enough to time out a deploy.
 
-  for (const brand of CATALOGUE) {
-    const brandRow = await db.brand.upsert({
-      where: { slug: brand.slug },
-      update: { name: brand.name, rank: brand.rank },
-      create: { name: brand.name, slug: brand.slug, rank: brand.rank },
-    });
+  await db.brand.createMany({
+    data: CATALOGUE.map((b) => ({ name: b.name, slug: b.slug, rank: b.rank })),
+    skipDuplicates: true,
+  });
 
-    for (const [name, screenPrice, year] of brand.models) {
+  const brandIds = new Map(
+    (await db.brand.findMany({ select: { id: true, slug: true } })).map((b) => [b.slug, b.id])
+  );
+
+  // Anchor prices are keyed by model so prices can be derived after the insert,
+  // once the generated model ids are known.
+  const anchorFor = new Map<string, number>();
+  const modelRows = CATALOGUE.flatMap((brand) =>
+    brand.models.map(([name, screenPrice, year]) => {
+      const brandId = brandIds.get(brand.slug)!;
       const slug = slugify(name);
-      const existing = await db.model.findUnique({
-        where: { brandId_slug: { brandId: brandRow.id, slug } },
-      });
+      anchorFor.set(`${brandId}:${slug}`, screenPrice);
+      return { name, slug, releaseYear: year, brandId };
+    })
+  );
 
-      const modelRow =
-        existing ??
-        (await db.model.create({
-          data: { name, slug, releaseYear: year, brandId: brandRow.id },
-        }));
-      if (!existing) modelsAdded++;
+  const modelsBefore = await db.model.count();
+  await db.model.createMany({ data: modelRows, skipDuplicates: true });
+  const modelsAdded = (await db.model.count()) - modelsBefore;
 
-      for (const issue of ISSUES) {
-        const issueId = issueRows.get(issue.slug)!;
-        const already = await db.priceItem.findUnique({
-          where: { modelId_issueId: { modelId: modelRow.id, issueId } },
-        });
-        // An existing price may have been edited by hand — never overwrite it.
-        if (already) continue;
+  const models = await db.model.findMany({ select: { id: true, slug: true, brandId: true } });
 
-        const price = priceFor(issue, screenPrice);
-        await db.priceItem.create({
-          data: {
-            modelId: modelRow.id,
-            issueId,
-            price,
-            // The struck-through "market price" on the quote card.
-            strikePrice: round99(price * 1.2),
-            etaMinutes: issue.eta,
-            warrantyMonths: 6,
-          },
-        });
-        pricesAdded++;
-      }
-    }
-  }
+  const priceRows = models.flatMap((model) => {
+    const anchor = anchorFor.get(`${model.brandId}:${model.slug}`);
+    // A model the admin added by hand has no anchor in the catalogue file;
+    // leave its prices alone rather than inventing them.
+    if (anchor === undefined) return [];
 
-  let areasAdded = 0;
-  for (const area of SERVICE_AREAS) {
-    const existing = await db.serviceArea.findUnique({ where: { pincode: area.pincode } });
-    if (existing) continue;
-    await db.serviceArea.create({ data: { ...area, doorstep: true, pickupAndDrop: true } });
-    areasAdded++;
-  }
+    return ISSUES.map((issue) => {
+      const price = priceFor(issue, anchor);
+      return {
+        modelId: model.id,
+        issueId: issueRows.get(issue.slug)!,
+        price,
+        // The struck-through "market price" on the quote card.
+        strikePrice: round99(price * 1.2),
+        etaMinutes: issue.eta,
+        warrantyMonths: 6,
+      };
+    });
+  });
+
+  // skipDuplicates leaves every existing (model, issue) row untouched, so a
+  // price edited in the admin panel survives re-seeding.
+  const pricesBefore = await db.priceItem.count();
+  await db.priceItem.createMany({ data: priceRows, skipDuplicates: true });
+  const pricesAdded = (await db.priceItem.count()) - pricesBefore;
+
+  const areasBefore = await db.serviceArea.count();
+  await db.serviceArea.createMany({
+    data: SERVICE_AREAS.map((a) => ({ ...a, doorstep: true, pickupAndDrop: true })),
+    skipDuplicates: true,
+  });
+  const areasAdded = (await db.serviceArea.count()) - areasBefore;
 
   // Accounts. Both are seeded from env so a deploy can set real credentials.
   const adminPhone = process.env.ADMIN_PHONE || "9000000001";

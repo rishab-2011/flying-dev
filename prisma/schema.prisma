@@ -1,15 +1,15 @@
 // Flying Dev — phone repair booking platform (Delhi NCR).
-//
-// SQLite is used for local development. Moving to Postgres is a provider
-// change here plus a fresh migration; no application code depends on it.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  // Serverless hosting opens a connection per request, so the app talks to
+  // Neon's pooler. Migrations can't run through a pooler, hence directUrl.
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {

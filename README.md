@@ -7,10 +7,13 @@ Built with Next.js (App Router), Prisma, SQLite and Tailwind.
 
 ## Running it locally
 
+Needs a Postgres database. The quickest one is a free Neon project — create a
+second one alongside production and use it for development.
+
 ```bash
 npm install
-cp .env.example .env        # then edit the values
-npm run db:push             # create the database
+cp .env.example .env        # paste your Neon connection strings in
+npm run db:migrate          # create the tables
 npm run seed                # load the catalogue, pincodes and accounts
 npm run dev                 # http://localhost:3000
 ```
@@ -76,22 +79,64 @@ status.
 When the Cloud API is ready, implement the `cloudApi` driver in that file and
 change `activeDriver`. Nothing else in the app changes.
 
-## Moving to production
+## Deploying (Netlify + Neon, both free)
 
-1. **Database** — change the `datasource` provider in `prisma/schema.prisma` to
-   `postgresql`, point `DATABASE_URL` at Neon/Supabase, run
-   `npx prisma migrate deploy`, then `npm run seed`.
-2. **Environment** — set `SESSION_SECRET` (use `openssl rand -base64 32`),
-   `NEXT_PUBLIC_WHATSAPP_NUMBER`, `NEXT_PUBLIC_SUPPORT_PHONE`,
-   `NEXT_PUBLIC_SITE_URL`, and a real `ADMIN_PHONE` / `ADMIN_PASSWORD`. Set them
-   in your host's dashboard, never in the repo.
-3. **Before taking real bookings**
-   - Replace the seeded prices with your own.
-   - Verify every pincode in `prisma/serviceAreas.ts` is one you can actually
-     reach inside a two-hour slot.
-   - Fill in every `[bracketed]` placeholder in `/terms` and `/privacy` and have
-     a lawyer review them.
-   - Swap the placeholder support phone and WhatsApp number.
+Netlify's free tier permits commercial use; Vercel's free Hobby plan does not,
+so this project is set up for Netlify. Total cost: ₹0, plus a domain if you want
+one.
+
+### 1. Create the database (Neon)
+
+1. Sign up at neon.tech and create a project in the **Singapore** region — it's
+   the closest to Delhi NCR.
+2. On the dashboard, copy **two** connection strings:
+   - the **pooled** one, whose host contains `-pooler` → this is `DATABASE_URL`
+   - the **direct** one, same string without `-pooler` → this is `DIRECT_URL`
+
+   The app opens a connection per request, so it must go through the pooler;
+   migrations can't run through a pooler, which is why both are needed.
+
+### 2. Deploy the site (Netlify)
+
+1. Sign up at netlify.com, choose **Add new site → Import an existing project**,
+   and pick this repository.
+2. Leave the build settings alone — `netlify.toml` already sets them.
+3. Under **Environment variables**, add:
+
+   | Variable | Value |
+   | --- | --- |
+   | `DATABASE_URL` | the pooled Neon string |
+   | `DIRECT_URL` | the direct Neon string |
+   | `SESSION_SECRET` | output of `openssl rand -base64 32` |
+   | `ADMIN_PHONE` | the phone number you'll sign in with |
+   | `ADMIN_PASSWORD` | a strong password you choose |
+   | `NEXT_PUBLIC_WHATSAPP_NUMBER` | your WhatsApp number, e.g. `919876543210` |
+   | `NEXT_PUBLIC_SUPPORT_PHONE` | as you want it shown, e.g. `+91 98765 43210` |
+   | `NEXT_PUBLIC_SITE_URL` | your live URL |
+   | `SEED_ON_BUILD` | `1` — **for the first deploy only** |
+
+4. Deploy. The build runs the migrations, loads the catalogue, and publishes.
+5. **Delete `SEED_ON_BUILD`** and redeploy. Leaving it on isn't destructive —
+   the seed never overwrites an edited price — but it re-adds models you may
+   have deliberately removed.
+
+Sign in at `/login` with the `ADMIN_PHONE` and `ADMIN_PASSWORD` you set.
+
+### 3. Your own domain (optional, ~₹800/year)
+
+`your-site.netlify.app` works, but a real domain converts better. Buy a `.in`
+from Cloudflare or Namecheap, then add it under **Domain management** in
+Netlify. HTTPS is automatic.
+
+### Before taking real bookings
+
+- Replace the seeded prices with your own — export the CSV from `/admin/prices`,
+  edit it, import it back.
+- Verify every pincode in `prisma/serviceAreas.ts` is one you can actually reach
+  inside a two-hour slot.
+- Fill in every `[bracketed]` placeholder in `/terms` and `/privacy` and have a
+  lawyer review them.
+- Confirm the WhatsApp and support numbers are yours, not the placeholders.
 
 ## Known gaps
 
