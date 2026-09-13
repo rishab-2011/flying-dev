@@ -5,7 +5,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Serverless hosting opens a connection per request, so the app talks to
   // Neon's pooler. Migrations can't run through a pooler, hence directUrl.
   url       = env("DATABASE_URL")
@@ -164,4 +164,21 @@ model QuoteRequest {
   pincode    String?
   handled    Boolean  @default(false)
   createdAt  DateTime @default(now())
+}
+
+// Fixed-window rate limiting. Counters live in the database rather than in
+// memory because the app runs on serverless instances that don't share state —
+// an in-process counter would reset on every cold start and be trivially
+// bypassed by hitting a different instance.
+model RateLimit {
+  id        String   @id @default(cuid())
+  // "action:scope:value", e.g. "booking:ip:203.0.113.4" or "login:phone:98…"
+  key       String
+  // End of the window this counter belongs to. Part of the key so a new window
+  // starts a fresh row instead of needing a reset.
+  windowEnd DateTime
+  count     Int      @default(1)
+
+  @@unique([key, windowEnd])
+  @@index([windowEnd])
 }
