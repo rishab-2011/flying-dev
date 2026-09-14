@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { rupees } from "@/lib/format";
+import { ModelSearch, type SearchableModel } from "@/components/ModelSearch";
 
 type Props = { params: Promise<{ brand: string }> };
 
@@ -18,6 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${brand.name} repair in Delhi NCR — prices for every model`,
     description: `Screen, battery and charging-port repair prices for ${brand.name} phones. Doorstep service across Delhi NCR with a 6-month warranty.`,
+    alternates: { canonical: `/repair/${slug}` },
   };
 }
 
@@ -41,6 +42,13 @@ export default async function BrandPage({ params }: Props) {
 
   if (!brand) notFound();
 
+  const models: SearchableModel[] = brand.models.map((model) => ({
+    id: model.id,
+    name: model.name,
+    slug: model.slug,
+    screenPrice: model.prices[0]?.price ?? null,
+  }));
+
   return (
     <div className="container-page py-12">
       <nav className="text-sm text-ink-muted">
@@ -59,36 +67,14 @@ export default async function BrandPage({ params }: Props) {
         {brand.name} repair prices
       </h1>
       <p className="mt-2 text-ink-muted">
-        {brand.models.length} models. Pick yours to see every repair we offer.
+        Find your model to see every repair we offer and what each one costs.
       </p>
 
-      <ul className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {brand.models.map((model) => {
-          const screen = model.prices[0];
-          return (
-            <li key={model.id}>
-              <Link
-                href={`/repair/${brand.slug}/${model.slug}`}
-                className="card group flex items-center justify-between gap-4 p-5 transition hover:border-brand-300 hover:shadow-lift"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-semibold group-hover:text-brand-700">
-                    {model.name}
-                  </p>
-                  {screen && (
-                    <p className="mt-0.5 text-sm text-ink-muted">
-                      Screen from {rupees(screen.price)}
-                    </p>
-                  )}
-                </div>
-                <span className="text-ink-muted transition group-hover:translate-x-1 group-hover:text-brand-500">
-                  →
-                </span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+      <ModelSearch
+        brandSlug={brand.slug}
+        brandName={brand.name}
+        models={models}
+      />
 
       <div className="card mt-10 flex flex-wrap items-center justify-between gap-4 p-6">
         <p className="text-sm text-ink-muted">

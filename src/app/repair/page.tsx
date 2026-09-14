@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Mobile repair prices in Delhi NCR",
   description:
     "Pick your phone brand to see screen, battery and charging-port repair prices. Doorstep service across Delhi, Noida, Gurugram, Ghaziabad and Faridabad.",
+  alternates: { canonical: "/repair" },
 };
 
 export default async function RepairPage() {

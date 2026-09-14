@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { rupees, formatSlot, modeLabel } from "@/lib/format";
 import { StatusBadge } from "@/components/StatusBadge";
-import { logoutAction } from "../auth-actions";
+import { logoutAction, updateProfileAction, changePasswordAction } from "../auth-actions";
+import { ProfileForm, PasswordForm } from "@/components/AccountSettings";
 
 export const metadata: Metadata = { title: "My bookings" };
 
@@ -13,6 +14,9 @@ export default async function AccountPage() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
   if (user.role === "ADMIN") redirect("/admin");
+
+  const account = await db.user.findUnique({ where: { id: user.id } });
+  if (!account) redirect("/login");
 
   const bookings = await db.booking.findMany({
     where: { OR: [{ userId: user.id }, { customerPhone: user.phone }] },
@@ -82,6 +86,19 @@ export default async function AccountPage() {
           ))}
         </ul>
       )}
+
+      <div className="mt-14 space-y-6">
+        <h2 className="text-xl font-bold tracking-tight">Settings</h2>
+        <ProfileForm
+          action={updateProfileAction}
+          defaults={{
+            name: account.name,
+            phone: account.phone,
+            email: account.email ?? "",
+          }}
+        />
+        <PasswordForm action={changePasswordAction} />
+      </div>
     </div>
   );
 }

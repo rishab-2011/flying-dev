@@ -24,6 +24,9 @@ export async function SiteHeader() {
           <Link href="/about" className="hover:text-brand-600">
             Why us
           </Link>
+          <Link href="/faq" className="hover:text-brand-600">
+            Questions
+          </Link>
           <a href={`tel:${supportPhone.replace(/\s/g, "")}`} className="hover:text-brand-600">
             {supportPhone}
           </a>
