@@ -1,0 +1,16 @@
+-- Remove the seeded demo customer from every environment.
+--
+-- Early builds seeded a demo login (phone 9000000002) so the funnel could be
+-- clicked through before real customers existed. The seed no longer creates it
+-- unless DEMO_CUSTOMER_PASSWORD is set, but the row is already present in any
+-- database seeded before that change -- including production, where it is a
+-- publicly-known password on a live account.
+--
+-- This is a data migration rather than a hand-run DELETE so it applies itself
+-- on the next deploy, and so a database restored from an old backup is cleaned
+-- up too.
+--
+-- Bookings reference User with ON DELETE SET NULL, so any booking made through
+-- the demo account survives with its customer name, phone and items intact and
+-- simply stops being linked to a login. Nothing else references User.
+DELETE FROM "User" WHERE "phone" = '9000000002';

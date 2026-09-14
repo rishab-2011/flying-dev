@@ -11,6 +11,25 @@ const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromi
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
 
+/**
+ * Poll until `probe` returns true, reloading state each time.
+ *
+ * Server-action forms here are progressively enhanced, and React's
+ * useActionState is given no `permalink`, so a click that lands before
+ * hydration finishes still posts natively and still saves -- it just reloads
+ * the page and discards the returned message with the old document. Waiting on
+ * the flash text therefore fails runs where the write plainly succeeded.
+ * Waiting on the saved state instead is true either way.
+ */
+async function until(probe, { timeout = 20000, interval = 500 } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    if (await probe()) return;
+    if (Date.now() > deadline) throw new Error("until(): timed out");
+    await new Promise((r) => setTimeout(r, interval));
+  }
+}
+
 const rupeesToNumber = (text) => Number(text.replace(/[^0-9]/g, ""));
 
 const listedPrice = async (name) => {
@@ -306,8 +325,16 @@ await page.goto(`${BASE}/account`);
 await page.fill("#name", "Renamed Customer");
 await page.fill("#email", "renamed@example.com");
 await page.getByRole("button", { name: "Save changes" }).click();
-await page.waitForSelector("text=Saved.", { timeout: 15000 });
-await page.goto(`${BASE}/account`);
+// Navigating the instant the click lands can abort the in-flight POST, so let
+// it settle before polling, then require the field and the header to agree --
+// they are read from one page load, and the two checks below read them back.
+await page.waitForTimeout(1500);
+await until(async () => {
+  await page.goto(`${BASE}/account`);
+  const saved = (await page.locator("#name").inputValue()) === "Renamed Customer";
+  const inHeader = (await page.locator("header").innerText()).includes("Renamed");
+  return saved && inHeader;
+});
 check(
   "profile changes are saved",
   (await page.locator("#name").inputValue()) === "Renamed Customer"
@@ -342,16 +369,32 @@ await ap.goto(`${BASE}/admin/bookings`);
 await ap.waitForSelector(`text=${ref}`);
 check("booking appears in admin bookings", true);
 
-// Status changes are server actions, so the form only works once React has
-// hydrated. The bookings board grows with every run, and a long board takes
-// long enough to hydrate that clicking sooner does nothing at all.
-await ap.waitForLoadState("networkidle");
-
 // Move the booking forward and confirm the customer-facing page follows.
-const card = ap.locator("li.card", { hasText: ref });
-await card.locator("select[name=status]").selectOption("CONFIRMED");
-await card.getByRole("button", { name: "Update" }).click();
-await ap.waitForSelector(`text=moved to confirmed`, { timeout: 15000 });
+//
+// Retry the whole interaction rather than just the assertion. The status form
+// is a progressively-enhanced server action, and networkidle settles on the
+// network while hydration is CPU work, so there is no reliable moment at which
+// the click is guaranteed to take the hydrated path. Re-doing select-click and
+// re-reading the board on a fresh load is true regardless of which path ran.
+await until(
+  async () => {
+    await ap.goto(`${BASE}/admin/bookings`);
+    await ap.waitForLoadState("networkidle");
+    const card = ap.locator("li.card", { hasText: ref });
+    await card.locator("select[name=status]").selectOption("CONFIRMED");
+    await card.getByRole("button", { name: "Update" }).click();
+    await ap.waitForTimeout(1500);
+
+    await ap.goto(`${BASE}/admin/bookings`);
+    const chip = await ap
+      .locator("li.card", { hasText: ref })
+      .locator(".chip")
+      .first()
+      .innerText();
+    return chip.trim() === "Confirmed";
+  },
+  { timeout: 45000, interval: 0 }
+);
 check("admin advances booking status", true);
 
 await page.goto(`${BASE}/track/${ref}`);
@@ -369,7 +412,10 @@ await ap.fill("#area", "Indirapuram, Ghaziabad");
 await ap.fill("#deviceLabel", "iPhone 13 screen");
 await ap.fill("#body", "Technician arrived on time and replaced the screen in under an hour.");
 await ap.getByRole("button", { name: "Add review" }).click();
-await ap.waitForSelector("text=Review added and published.", { timeout: 15000 });
+// Assert the outcome, not the flash. These forms are progressively enhanced:
+// an un-hydrated click still posts natively and still works, it just reloads
+// the page and discards the useActionState message with the old document.
+await ap.waitForSelector(`li.card:has-text("${reviewName}")`, { timeout: 20000 });
 
 await page.goto(`${BASE}/reviews`);
 check(
@@ -388,7 +434,12 @@ check(
 await ap.goto(`${BASE}/admin/reviews`);
 await ap.waitForLoadState("networkidle");
 await ap.locator("li.card", { hasText: reviewName }).getByRole("button", { name: "Hide" }).click();
-await ap.waitForSelector("text=Hidden from the site.", { timeout: 15000 });
+// Hidden cards keep their text and swap the chip to "Hidden" (the button then
+// reads "Publish"), so wait for that rather than for the flash message.
+await ap.waitForSelector(
+  `li.card:has-text("${reviewName}") .chip:has-text("Hidden")`,
+  { timeout: 20000 }
+);
 
 await page.goto(`${BASE}/reviews`);
 check(
@@ -410,13 +461,19 @@ const priceUrl = `${BASE}/admin/prices?brand=apple&model=iphone-13`;
 
 const setScreenPrice = async (value) => {
   await ap.goto(priceUrl);
-  // Saving is a server action, so the form only works once React has hydrated;
-  // clicking sooner does a plain POST that goes nowhere.
+  // Saving is a server action, so the form is fully interactive only once React
+  // has hydrated. Clicking sooner still saves -- the browser posts the form
+  // natively -- but the confirmation message is lost with the old document.
   await ap.waitForLoadState("networkidle");
   const form = ap.locator("form", { hasText: "Screen replacement" }).first();
   await form.locator("input[name=price]").fill(String(value));
   await form.getByRole("button", { name: "Save" }).click();
-  await ap.waitForSelector("text=Price updated.", { timeout: 15000 });
+  await until(async () => {
+    await ap.goto(priceUrl);
+    const field = ap.locator("form", { hasText: "Screen replacement" }).first()
+      .locator("input[name=price]");
+    return Number(await field.inputValue()) === value;
+  });
 };
 
 await setScreenPrice(editedPrice);

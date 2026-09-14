@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { db } from "@/lib/db";
+import { siteUrl } from "@/lib/siteUrl";
 
 /**
  * The sitemap is the whole point of having 191 model pages.
@@ -15,10 +16,7 @@ import { db } from "@/lib/db";
 export const revalidate = 86400; // a day; the catalogue changes rarely
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(
-    /\/$/,
-    ""
-  );
+  const base = siteUrl();
 
   const staticPages: MetadataRoute.Sitemap = [
     { url: `${base}/`, changeFrequency: "weekly", priority: 1 },
