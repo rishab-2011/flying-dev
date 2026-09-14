@@ -4,7 +4,7 @@ import { Wordmark } from "./Logo";
 const CITIES = ["Delhi", "Noida", "Greater Noida", "Ghaziabad", "Gurugram", "Faridabad"];
 
 export function SiteFooter() {
-  const phone = process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+91 99999 99999";
+  const phone = process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+91 85879 49104";
 
   return (
     <footer className="mt-20 border-t border-surface-line bg-white">

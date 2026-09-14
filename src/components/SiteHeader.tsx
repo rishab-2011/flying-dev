@@ -5,7 +5,7 @@ import { getSessionUser } from "@/lib/auth";
 
 export async function SiteHeader() {
   const user = await getSessionUser();
-  const supportPhone = process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+91 99999 99999";
+  const supportPhone = process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+91 85879 49104";
 
   return (
     <header className="sticky top-0 z-40 border-b border-surface-line bg-white/90 backdrop-blur">

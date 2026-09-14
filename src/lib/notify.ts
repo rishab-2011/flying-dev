@@ -46,7 +46,7 @@ const clickToChat: NotificationDriver = {
 const activeDriver: NotificationDriver = clickToChat;
 
 export function businessWhatsAppNumber(): string {
-  return (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919999999999").replace(/\D/g, "");
+  return (process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "918587949104").replace(/\D/g, "");
 }
 
 /** Builds a wa.me deep link. `phone` may be 10-digit Indian or full international. */
