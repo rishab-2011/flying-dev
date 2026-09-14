@@ -252,3 +252,73 @@ export async function markQuoteHandledAction(
     return { message: "Marked as handled." };
   }) as Promise<AdminState>;
 }
+
+const reviewSchema = z.object({
+  customerName: z.string().trim().min(2, "Enter the customer's name"),
+  area: z.string().trim().optional(),
+  deviceLabel: z.string().trim().optional(),
+  rating: z.coerce.number().int().min(1).max(5),
+  body: z.string().trim().min(10, "The review is too short to be useful"),
+});
+
+export async function addReviewAction(
+  _prev: AdminState,
+  formData: FormData
+): Promise<AdminState> {
+  return guard(async () => {
+    const parsed = reviewSchema.safeParse({
+      customerName: formData.get("customerName"),
+      area: formData.get("area") ?? "",
+      deviceLabel: formData.get("deviceLabel") ?? "",
+      rating: formData.get("rating"),
+      body: formData.get("body"),
+    });
+    if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+    await db.review.create({
+      data: {
+        customerName: parsed.data.customerName,
+        area: parsed.data.area || null,
+        deviceLabel: parsed.data.deviceLabel || null,
+        rating: parsed.data.rating,
+        body: parsed.data.body,
+      },
+    });
+
+    revalidatePath("/admin/reviews");
+    revalidatePath("/reviews");
+    revalidatePath("/");
+    return { message: "Review added and published." };
+  }) as Promise<AdminState>;
+}
+
+export async function toggleReviewAction(
+  _prev: AdminState,
+  formData: FormData
+): Promise<AdminState> {
+  return guard(async () => {
+    const id = String(formData.get("reviewId") ?? "");
+    const review = await db.review.findUnique({ where: { id } });
+    if (!review) return { error: "Review not found." };
+
+    await db.review.update({ where: { id }, data: { published: !review.published } });
+    revalidatePath("/admin/reviews");
+    revalidatePath("/reviews");
+    revalidatePath("/");
+    return { message: review.published ? "Hidden from the site." : "Published." };
+  }) as Promise<AdminState>;
+}
+
+export async function deleteReviewAction(
+  _prev: AdminState,
+  formData: FormData
+): Promise<AdminState> {
+  return guard(async () => {
+    const id = String(formData.get("reviewId") ?? "");
+    await db.review.delete({ where: { id } });
+    revalidatePath("/admin/reviews");
+    revalidatePath("/reviews");
+    revalidatePath("/");
+    return { message: "Review deleted." };
+  }) as Promise<AdminState>;
+}

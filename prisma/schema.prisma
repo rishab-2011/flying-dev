@@ -182,3 +182,24 @@ model RateLimit {
   @@unique([key, windowEnd])
   @@index([windowEnd])
 }
+
+// A customer review, entered by an admin from feedback actually received.
+//
+// Nothing is seeded: an invented testimonial is the fastest way to lose the
+// trust this section exists to build, and a customer who spots one stops
+// believing the prices too.
+model Review {
+  id           String   @id @default(cuid())
+  customerName String
+  // Where they are, e.g. "Indirapuram, Ghaziabad" — shown under the name.
+  area         String?
+  // What was repaired, e.g. "iPhone 13 screen".
+  deviceLabel  String?
+  rating       Int      @default(5)
+  body         String
+  // Unpublished reviews stay in the admin panel only.
+  published    Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([published, createdAt])
+}
