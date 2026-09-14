@@ -13,6 +13,37 @@ const page = await ctx.newPage();
 
 const rupeesToNumber = (text) => Number(text.replace(/[^0-9]/g, ""));
 
+// --- Serviceability, before the funnel ------------------------------------
+// The point of the home-page check is that nobody fills in a name, number and
+// address before finding out we can't reach them.
+await page.goto(`${BASE}/`);
+await page.fill("#home-pincode", "110001");
+await page.waitForSelector("text=we repair at your doorstep in Connaught Place");
+check("home page confirms a covered pincode", true);
+
+await page.fill("#home-pincode", "560001"); // Bengaluru
+await page.waitForSelector("text=Not 560001 yet");
+check("home page turns away an uncovered pincode early", true);
+
+// A phone-width visitor must be able to call without hunting in the footer.
+// The header carries two tel: links — the desktop nav number and the phone-only
+// button — so this asserts exactly one is actually visible at each width.
+const phone = await ctx.newPage();
+await phone.setViewportSize({ width: 390, height: 844 });
+await phone.goto(`${BASE}/`);
+const visibleOnPhone = await phone.locator("header a[href^='tel:']:visible").count();
+check("tap-to-call is reachable on a phone", visibleOnPhone === 1, `${visibleOnPhone} visible`);
+
+await phone.setViewportSize({ width: 1280, height: 900 });
+await phone.goto(`${BASE}/`);
+const visibleOnDesktop = await phone.locator("header a[href^='tel:']:visible").count();
+check(
+  "the number shows once on desktop, not twice",
+  visibleOnDesktop === 1,
+  `${visibleOnDesktop} visible`
+);
+await phone.close();
+
 // --- Customer funnel -------------------------------------------------------
 await page.goto(`${BASE}/repair/apple/iphone-13`);
 

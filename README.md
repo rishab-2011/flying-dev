@@ -167,7 +167,12 @@ page, and a price edit reaching the storefront.
 
 `tests/rate-limit.mjs` hammers the login form to prove the limits hold: that a
 flood is blocked, that the correct password is blocked too while the block
-lasts, and that a different phone number still signs in.
+lasts, and that a different phone number still signs in. It clears the
+rate-limit counters first and targets a fresh number each run, so running the
+suite repeatedly doesn't trip its own limits.
+
+Both suites write to the database — bookings, accounts, a price edit that is
+then restored — so point them at a development database, never production.
 
 ```bash
 npm run build && npm start     # in one terminal, on port 3000

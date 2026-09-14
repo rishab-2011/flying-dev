@@ -75,7 +75,7 @@ export default async function ModelPage({ params }: Props) {
         <h1 className="text-3xl font-bold tracking-tight">{label} repair</h1>
         <p className="mt-2 max-w-2xl text-ink-muted">
           Fixed prices with genuine-grade parts, a 6-month warranty, and a
-          technician who comes to your address anywhere in Delhi NCR.
+          technician who comes to your address across Delhi NCR.
         </p>
 
         <ul className="mt-5 flex flex-wrap gap-4 text-sm text-ink-soft">
