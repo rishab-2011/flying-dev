@@ -6,8 +6,22 @@
  * directly, so it exercises the same path an attacker's script would.
  */
 import { chromium } from "playwright";
+import { PrismaClient } from "@prisma/client";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
+
+/**
+ * Clear the rate-limit counters first.
+ *
+ * This suite spends about ten login attempts per run, against a per-IP budget
+ * of thirty per fifteen minutes. Without a reset the third consecutive run
+ * starts already blocked and reports a failure that says nothing about the
+ * code. Like the booking suite, this is written for a development database —
+ * it also creates bookings and edits prices.
+ */
+const db = new PrismaClient();
+await db.rateLimit.deleteMany();
+await db.$disconnect();
 const results = [];
 const check = (name, ok, detail = "") => {
   results.push(ok);
@@ -17,9 +31,15 @@ const check = (name, ok, detail = "") => {
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
 const page = await (await browser.newContext()).newPage();
 
-// The per-phone login rule is 6 attempts per 15 minutes. Hammer one number
-// with a wrong password and confirm the door shuts.
-const victim = "9000000002"; // the seeded demo customer
+// The per-phone login rule is 6 attempts per 15 minutes, and those counters
+// outlive the test run — so target a number nobody has tried this window,
+// otherwise a second run inside 15 minutes starts already blocked.
+//
+// The number need not belong to a real account: the limiter runs before the
+// user lookup, and an unknown number gets the same "incorrect" message as a
+// wrong password, by design, so the login form can't be used to discover who
+// has an account.
+const victim = "9" + String(Date.now()).slice(-9);
 let blockedAt = null;
 let sawWrongPassword = false;
 
@@ -63,12 +83,14 @@ check(
 );
 
 // A different number is unaffected: the limit is per phone, not global, so one
-// attacker can't lock every customer out of their own account.
+// attacker can't lock every customer out of their own account. This uses the
+// seeded demo customer rather than the admin, so it costs one login attempt on
+// a number the booking suite doesn't also use.
 await page.goto(`${BASE}/login`);
-await page.fill("#phone", "9000000001");
-await page.fill("#password", "flyingdev-admin");
+await page.fill("#phone", "9000000002");
+await page.fill("#password", "demo1234");
 await page.getByRole("button", { name: "Sign in" }).click();
-await page.waitForURL(/\/admin/, { timeout: 15000 });
+await page.waitForURL(/\/account/, { timeout: 15000 });
 check("a different number still signs in", true);
 
 await browser.close();

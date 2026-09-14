@@ -2,12 +2,13 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { Icon } from "@/components/Icon";
 import { rupees } from "@/lib/format";
+import { PincodeCheck } from "@/components/PincodeCheck";
 
 const PROMISES = [
   {
     icon: "home",
     title: "We come to you",
-    body: "A technician reaches your home or office anywhere in Delhi NCR and repairs on the spot, usually in under an hour.",
+    body: "A technician reaches your home or office across Delhi NCR and repairs on the spot, usually in under an hour.",
   },
   {
     icon: "shield",
@@ -39,6 +40,12 @@ export default async function HomePage() {
     include: { _count: { select: { models: true } } },
   });
 
+  const areas = await db.serviceArea.findMany({
+    where: { active: true },
+    select: { pincode: true, city: true, area: true },
+    orderBy: { pincode: "asc" },
+  });
+
   // The cheapest screen job across the catalogue anchors the "from" price.
   const cheapestScreen = await db.priceItem.findFirst({
     where: { issue: { slug: "screen" }, active: true },
@@ -52,7 +59,7 @@ export default async function HomePage() {
         <div className="container-page grid items-center gap-12 py-16 lg:grid-cols-2 lg:py-24">
           <div>
             <span className="chip bg-accent-100 text-accent-600">
-              Now serving all of Delhi NCR
+              Doorstep repair across Delhi NCR
             </span>
             <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl">
               Phone broken?
@@ -78,6 +85,8 @@ export default async function HomePage() {
             <p className="mt-5 text-sm text-ink-muted">
               No advance payment. Pay the technician after the repair is done.
             </p>
+
+            <PincodeCheck areas={areas} />
           </div>
 
           {/* Brand quick-pick */}
