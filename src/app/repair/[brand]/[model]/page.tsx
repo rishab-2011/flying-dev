@@ -5,6 +5,8 @@ import { db } from "@/lib/db";
 import { rupees } from "@/lib/format";
 import { IssueSelector, type SelectableIssue } from "@/components/IssueSelector";
 import { Icon } from "@/components/Icon";
+import { StructuredData } from "@/components/StructuredData";
+import { BUSINESS } from "@/lib/business";
 
 type Props = { params: Promise<{ brand: string; model: string }> };
 
@@ -35,6 +37,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description: screen
       ? `${label} screen replacement from ${rupees(screen.price)}, plus battery, charging port and camera repairs. Doorstep service across Delhi NCR with a 6-month warranty.`
       : `${label} repair at your doorstep across Delhi NCR, with a 6-month warranty.`,
+    alternates: { canonical: `/repair/${brand}/${modelSlug}` },
   };
 }
 
@@ -44,6 +47,39 @@ export default async function ModelPage({ params }: Props) {
   if (!model) notFound();
 
   const label = `${model.brand.name} ${model.name}`.replace(/^Apple /, "");
+
+  // One Service per page, with a real offer for each repair. These are the
+  // prices actually shown below — a search result quoting a price the page
+  // doesn't honour is worse than no rich result at all.
+  const service = {
+    "@context": "https://schema.org",
+    "@type": "Service",
+    serviceType: `${label} repair`,
+    name: `${label} repair in Delhi NCR`,
+    provider: {
+      "@type": "ProfessionalService",
+      name: BUSINESS.name,
+      telephone: BUSINESS.phone,
+      url: BUSINESS.url,
+    },
+    areaServed: BUSINESS.cities.map((city) => ({ "@type": "City", name: city })),
+    offers: model.prices.map((p) => ({
+      "@type": "Offer",
+      name: `${p.issue.name} — ${label}`,
+      price: p.price,
+      priceCurrency: "INR",
+      availability: "https://schema.org/InStock",
+      url: `${BUSINESS.url}/repair/${model.brand.slug}/${model.slug}`,
+      warranty: {
+        "@type": "WarrantyPromise",
+        durationOfWarranty: {
+          "@type": "QuantitativeValue",
+          value: p.warrantyMonths,
+          unitCode: "MON",
+        },
+      },
+    })),
+  };
 
   const issues: SelectableIssue[] = model.prices.map((p) => ({
     id: p.id,
@@ -59,6 +95,8 @@ export default async function ModelPage({ params }: Props) {
 
   return (
     <div className="container-page py-12">
+      <StructuredData data={service} />
+
       <nav className="text-sm text-ink-muted">
         <Link href="/repair" className="hover:text-brand-600">
           Repair

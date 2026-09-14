@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Request a repair quote",
   description:
     "Phone not listed? Tell us the model and the fault and we'll send you a repair price on WhatsApp.",
+  alternates: { canonical: "/quote" },
 };
 
 export default function QuotePage() {

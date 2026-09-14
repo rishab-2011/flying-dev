@@ -9,6 +9,7 @@ export const metadata: Metadata = {
   title: "Customer reviews",
   description:
     "What customers say about Flying Dev doorstep phone repair across Delhi, Noida, Gurugram, Ghaziabad and Faridabad.",
+  alternates: { canonical: "/reviews" },
 };
 
 export default async function ReviewsPage() {

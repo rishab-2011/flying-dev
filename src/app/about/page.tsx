@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Why Flying Dev",
   description:
     "Doorstep phone repair across Delhi NCR with fixed prices, genuine-grade parts and a 6-month warranty on every repair.",
+  alternates: { canonical: "/about" },
 };
 
 const POINTS = [
