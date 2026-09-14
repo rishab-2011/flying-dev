@@ -7,6 +7,8 @@
  * schema.org markup is worse than none, because Google will place the business
  * on a map at it and customers will turn up there.
  */
+import { siteUrl } from "./siteUrl";
+
 export const BUSINESS = {
   name: "Flying Dev",
   /** Falls back to the number the site displays everywhere else. */
@@ -14,7 +16,7 @@ export const BUSINESS = {
     return process.env.NEXT_PUBLIC_SUPPORT_PHONE || "+91 85879 49104";
   },
   get url() {
-    return (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+    return siteUrl();
   },
   /** Set BUSINESS_STREET_ADDRESS etc. once the registered address is settled. */
   get address() {
