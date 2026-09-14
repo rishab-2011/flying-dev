@@ -13,6 +13,30 @@ const page = await ctx.newPage();
 
 const rupeesToNumber = (text) => Number(text.replace(/[^0-9]/g, ""));
 
+// --- WhatsApp, reachable while browsing -----------------------------------
+// It used to appear only after a booking was placed and in the admin panel, so
+// a customer deciding whether to trust us never saw one.
+for (const [path, expectation] of [
+  ["/", "phone repair"],
+  ["/repair/apple/iphone-13", "Apple Iphone 13"],
+  ["/quote", "isn't listed"],
+]) {
+  await page.goto(`${BASE}${path}`);
+  const chat = page.locator("a[href*='wa.me']").first();
+  const href = await chat.getAttribute("href");
+  const ok =
+    (await chat.isVisible()) &&
+    /wa\.me\/918587949104\?text=/.test(href) &&
+    decodeURIComponent(href).includes(expectation);
+  check(`WhatsApp button on ${path}`, ok, decodeURIComponent(href ?? "").slice(0, 60));
+}
+
+// Not in the admin panel: those pages carry per-booking WhatsApp links of their
+// own, and a floating button to our own number would only be in the way.
+await page.goto(`${BASE}/login`);
+const loginChat = await page.locator("a[href*='wa.me']").count();
+check("WhatsApp button present on the login page", loginChat === 1, `${loginChat}`);
+
 // --- Serviceability, before the funnel ------------------------------------
 // The point of the home-page check is that nobody fills in a name, number and
 // address before finding out we can't reach them.
@@ -94,7 +118,11 @@ const ref = url.match(/FD-[A-Z0-9]{6}/)[0];
 check("booking created with reference", !!ref, ref);
 
 const waHref = await page.getByRole("link", { name: "Confirm on WhatsApp" }).getAttribute("href");
-check("WhatsApp confirm link built", waHref.startsWith("https://wa.me/919999999999?text="), "");
+check(
+  "WhatsApp confirm link built",
+  /^https:\/\/wa\.me\/91\d{10}\?text=/.test(waHref),
+  waHref.split("?")[0]
+);
 check("WhatsApp text carries the ref", decodeURIComponent(waHref).includes(ref));
 
 // --- Rejected pincode ------------------------------------------------------

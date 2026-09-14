@@ -243,24 +243,35 @@ async function main() {
     },
   });
 
-  await db.user.upsert({
-    where: { phone: "9000000002" },
-    update: {},
-    create: {
-      name: "Demo Customer",
-      phone: "9000000002",
-      email: "demo@example.com",
-      role: "CUSTOMER",
-      password: await bcrypt.hash("demo1234", 10),
-    },
-  });
+  // No demo customer. An account with a password published in this repository
+  // is fine on a laptop and indefensible on a live site, and customers book
+  // without an account anyway. Set DEMO_CUSTOMER_PASSWORD to create one for
+  // local testing; never set it in a deployed environment.
+  const demoPassword = process.env.DEMO_CUSTOMER_PASSWORD;
+  if (demoPassword) {
+    await db.user.upsert({
+      where: { phone: "9000000002" },
+      update: { password: await bcrypt.hash(demoPassword, 10) },
+      create: {
+        name: "Demo Customer",
+        phone: "9000000002",
+        email: "demo@example.com",
+        role: "CUSTOMER",
+        password: await bcrypt.hash(demoPassword, 10),
+      },
+    });
+  }
 
   console.log(
     `Done. ${modelsAdded} models added, ${pricesAdded} prices added, ` +
       `${areasAdded} pincodes added. Existing rows were left untouched.`
   );
   console.log(`Admin login: ${adminPhone} / ${adminPassword}`);
-  console.log("Customer login: 9000000002 / demo1234");
+  console.log(
+    demoPassword
+      ? "Demo customer: 9000000002 (DEMO_CUSTOMER_PASSWORD)"
+      : "No demo customer created. Set DEMO_CUSTOMER_PASSWORD locally if you want one."
+  );
 }
 
 main()

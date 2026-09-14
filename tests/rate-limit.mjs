@@ -83,12 +83,25 @@ check(
 );
 
 // A different number is unaffected: the limit is per phone, not global, so one
-// attacker can't lock every customer out of their own account. This uses the
-// seeded demo customer rather than the admin, so it costs one login attempt on
-// a number the booking suite doesn't also use.
+// attacker can't lock every customer out of their own account. The account is
+// created here rather than seeded — the seed deliberately ships no customer
+// login, since a published password has no place on a live site.
+const bystander = "8" + String(Date.now()).slice(-9);
+await page.goto(`${BASE}/signup`);
+await page.fill("#name", "Bystander");
+await page.fill("#phone", bystander);
+await page.fill("#password", "a-fresh-password-for-this-run");
+await page.getByRole("button", { name: "Create account" }).click();
+await page.waitForURL(/\/account/, { timeout: 15000 });
+
+// Sign out, then back in, so this exercises the login path and not the session
+// that signup already created.
+await page.getByRole("button", { name: "Sign out" }).click();
+await page.waitForURL(/\/$/, { timeout: 15000 });
+
 await page.goto(`${BASE}/login`);
-await page.fill("#phone", "9000000002");
-await page.fill("#password", "demo1234");
+await page.fill("#phone", bystander);
+await page.fill("#password", "a-fresh-password-for-this-run");
 await page.getByRole("button", { name: "Sign in" }).click();
 await page.waitForURL(/\/account/, { timeout: 15000 });
 check("a different number still signs in", true);

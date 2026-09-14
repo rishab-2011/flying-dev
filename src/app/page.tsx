@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { Icon } from "@/components/Icon";
 import { rupees } from "@/lib/format";
 import { PincodeCheck } from "@/components/PincodeCheck";
+import { PhotoGallery } from "@/components/PhotoGallery";
+import { RepairIllustration } from "@/components/RepairIllustration";
 
 const PROMISES = [
   {
@@ -147,19 +149,25 @@ export default async function HomePage() {
           <h2 className="text-3xl font-bold tracking-tight">How it works</h2>
           <p className="mt-2 text-ink-muted">Four steps, about two minutes.</p>
 
-          <ol className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {STEPS.map((s) => (
-              <li key={s.n}>
-                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500 text-sm font-bold text-white">
-                  {s.n}
-                </span>
-                <h3 className="mt-4 font-semibold">{s.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{s.body}</p>
-              </li>
-            ))}
-          </ol>
+          <div className="mt-10 grid items-center gap-10 lg:grid-cols-[1.4fr_1fr]">
+            <ol className="grid gap-8 sm:grid-cols-2">
+              {STEPS.map((s) => (
+                <li key={s.n}>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-500 text-sm font-bold text-white">
+                    {s.n}
+                  </span>
+                  <h3 className="mt-4 font-semibold">{s.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">{s.body}</p>
+                </li>
+              ))}
+            </ol>
+
+            <RepairIllustration className="mx-auto w-full max-w-sm" />
+          </div>
         </div>
       </section>
+
+      <PhotoGallery />
 
       {/* Closing CTA */}
       <section className="container-page py-16">

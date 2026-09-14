@@ -20,10 +20,12 @@ npm run dev                 # http://localhost:3000
 
 Seeded logins (change these before deploying anywhere public):
 
-| Role     | Phone        | Password          |
-| -------- | ------------ | ----------------- |
-| Admin    | `9000000001` | `flyingdev-admin` |
-| Customer | `9000000002` | `demo1234`        |
+| Role  | Phone        | Password          |
+| ----- | ------------ | ----------------- |
+| Admin | `9000000001` | `flyingdev-admin` |
+
+The seed creates no customer account. Set `DEMO_CUSTOMER_PASSWORD` before
+seeding if you want one for local testing — never set it on a deployed site.
 
 ## What's here
 
