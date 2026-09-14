@@ -13,6 +13,46 @@ const page = await ctx.newPage();
 
 const rupeesToNumber = (text) => Number(text.replace(/[^0-9]/g, ""));
 
+// --- The things that make a site look finished ----------------------------
+await page.goto(`${BASE}/`);
+const head = await page.evaluate(() => ({
+  icon: !!document.querySelector('link[rel="icon"]'),
+  appleIcon: !!document.querySelector('link[rel="apple-touch-icon"]'),
+  ogImage: document.querySelector('meta[property="og:image"]')?.getAttribute("content") ?? "",
+  ogTitle: !!document.querySelector('meta[property="og:title"]'),
+  twitterCard:
+    document.querySelector('meta[name="twitter:card"]')?.getAttribute("content") ?? "",
+}));
+
+check("a favicon is declared", head.icon);
+check("an apple touch icon is declared", head.appleIcon);
+check("a share image is declared", head.ogImage.includes("og-image"), head.ogImage);
+check("the share card is the large format", head.twitterCard === "summary_large_image");
+
+// WhatsApp and Google only fetch an absolute og:image, so metadataBase has to
+// be set — an accidental relative URL silently produces a card with no image.
+check("the share image URL is absolute", /^https?:\/\//.test(head.ogImage), head.ogImage);
+
+// And it has to actually resolve. Fetched against this run's origin rather
+// than the absolute URL, whose host comes from NEXT_PUBLIC_SITE_URL and points
+// at the deployed site, not the server under test.
+const ogPath = new URL(head.ogImage).pathname;
+const ogResponse = await page.request.get(`${BASE}${ogPath}`);
+check(
+  "the share image loads",
+  ogResponse.ok() && (ogResponse.headers()["content-type"] ?? "").includes("image"),
+  `${ogResponse.status()} ${ogPath}`
+);
+
+// A stock 404 is one of the clearest signs a site was never finished.
+const missing = await page.goto(`${BASE}/repair/apple/no-such-phone-here`);
+check("an unknown page returns 404", missing.status() === 404, `${missing.status()}`);
+const missingCopy = await page.locator("main").innerText();
+check(
+  "the 404 page is ours and offers a way forward",
+  missingCopy.includes("That page isn't here") && missingCopy.includes("Find your phone")
+);
+
 // --- FAQ -------------------------------------------------------------------
 await page.goto(`${BASE}/faq`);
 const faqCount = await page.locator("details").count();
