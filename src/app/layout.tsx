@@ -21,13 +21,33 @@ export const metadata: Metadata = {
     "screen replacement Noida",
     "battery replacement Gurugram",
   ],
+  // Most sharing here happens on WhatsApp, where a link with no card is just a
+  // blue string of text. og-image.png is what turns it into a preview.
   openGraph: {
     title: "Flying Dev — Doorstep Mobile Repair in Delhi NCR",
     description:
       "Fixed prices, genuine parts, 6-month warranty. A technician comes to you.",
     type: "website",
     locale: "en_IN",
+    siteName: "Flying Dev",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "Flying Dev — doorstep phone repair across Delhi NCR, 6-month warranty, pay after the repair",
+      },
+    ],
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "Flying Dev — Doorstep Mobile Repair in Delhi NCR",
+    description:
+      "Fixed prices, genuine parts, 6-month warranty. A technician comes to you.",
+    images: ["/og-image.png"],
+  },
+  applicationName: "Flying Dev",
+  appleWebApp: { title: "Flying Dev", capable: true, statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {

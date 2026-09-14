@@ -13,6 +13,137 @@ const page = await ctx.newPage();
 
 const rupeesToNumber = (text) => Number(text.replace(/[^0-9]/g, ""));
 
+const listedPrice = async (name) => {
+  const row = page.getByRole("button", { name });
+  // The row has two bold spans: the price, and the selection tick (empty when
+  // unselected) — so keep only the one carrying an amount.
+  const amounts = (await row.locator("span.font-bold").allInnerTexts()).filter((t) =>
+    t.includes("₹")
+  );
+  return rupeesToNumber(amounts[amounts.length - 1]);
+};
+
+// --- Findability -----------------------------------------------------------
+// The 191 model pages are the point of the catalogue, and nothing links to most
+// of them — without a sitemap Google never discovers them.
+const sitemap = await page.request.get(`${BASE}/sitemap.xml`);
+const sitemapXml = await sitemap.text();
+const urlCount = (sitemapXml.match(/<loc>/g) ?? []).length;
+check(
+  "sitemap lists every model page",
+  sitemap.ok() && urlCount > 190,
+  `${sitemap.status()}, ${urlCount} urls`
+);
+check(
+  "sitemap includes a specific model",
+  sitemapXml.includes("/repair/apple/iphone-13")
+);
+
+const robots = await page.request.get(`${BASE}/robots.txt`);
+const robotsText = await robots.text();
+check("robots.txt is served", robots.ok(), `${robots.status()}`);
+check("robots.txt points at the sitemap", robotsText.includes("sitemap.xml"));
+check(
+  "robots.txt keeps crawlers out of customer data",
+  ["/admin", "/account", "/book", "/track"].every((p) => robotsText.includes(p))
+);
+
+// Structured data has to match what the page actually says — a rating or a
+// price asserted to Google but not honoured on the page is a penalty.
+await page.goto(`${BASE}/`);
+const homeLd = JSON.parse(
+  await page.locator('script[type="application/ld+json"]').first().innerText()
+);
+check("home declares the business", homeLd["@type"] === "ProfessionalService", homeLd["@type"]);
+check(
+  "no rating is claimed while there are no reviews",
+  homeLd.aggregateRating === undefined
+);
+check(
+  "no address is claimed while none is configured",
+  homeLd.address === undefined
+);
+
+await page.goto(`${BASE}/repair/apple/iphone-13`);
+const serviceLd = JSON.parse(
+  await page.locator('script[type="application/ld+json"]').first().innerText()
+);
+const screenOffer = serviceLd.offers.find((o) => o.name.startsWith("Screen"));
+const shownScreenPrice = await listedPrice(/Screen replacement/);
+check(
+  "the offered price matches the price on the page",
+  screenOffer.price === shownScreenPrice,
+  `${screenOffer.price} vs ${shownScreenPrice}`
+);
+check("the page declares a canonical URL", await page.locator('link[rel="canonical"]').count() === 1);
+
+// --- Model search ----------------------------------------------------------
+await page.goto(`${BASE}/repair/samsung`);
+const allModels = await page.locator("ul li a").count();
+await page.fill("#model-search", "s24");
+await page.waitForTimeout(200);
+const filtered = await page.locator("ul li a").count();
+check(
+  "typing filters the model list",
+  filtered > 0 && filtered < allModels,
+  `${filtered} of ${allModels}`
+);
+
+// Someone in a hurry types without the space.
+await page.fill("#model-search", "s24ultra");
+await page.waitForTimeout(200);
+check(
+  "a spaceless query still finds the model",
+  (await page.locator("ul li a").first().innerText()).includes("S24 Ultra")
+);
+
+await page.fill("#model-search", "zzzznope");
+await page.waitForTimeout(200);
+check(
+  "no matches offers the quote form rather than a blank page",
+  (await page.locator("main").innerText()).includes("Request a quote")
+);
+
+// --- The things that make a site look finished ----------------------------
+await page.goto(`${BASE}/`);
+const head = await page.evaluate(() => ({
+  icon: !!document.querySelector('link[rel="icon"]'),
+  appleIcon: !!document.querySelector('link[rel="apple-touch-icon"]'),
+  ogImage: document.querySelector('meta[property="og:image"]')?.getAttribute("content") ?? "",
+  ogTitle: !!document.querySelector('meta[property="og:title"]'),
+  twitterCard:
+    document.querySelector('meta[name="twitter:card"]')?.getAttribute("content") ?? "",
+}));
+
+check("a favicon is declared", head.icon);
+check("an apple touch icon is declared", head.appleIcon);
+check("a share image is declared", head.ogImage.includes("og-image"), head.ogImage);
+check("the share card is the large format", head.twitterCard === "summary_large_image");
+
+// WhatsApp and Google only fetch an absolute og:image, so metadataBase has to
+// be set — an accidental relative URL silently produces a card with no image.
+check("the share image URL is absolute", /^https?:\/\//.test(head.ogImage), head.ogImage);
+
+// And it has to actually resolve. Fetched against this run's origin rather
+// than the absolute URL, whose host comes from NEXT_PUBLIC_SITE_URL and points
+// at the deployed site, not the server under test.
+const ogPath = new URL(head.ogImage).pathname;
+const ogResponse = await page.request.get(`${BASE}${ogPath}`);
+check(
+  "the share image loads",
+  ogResponse.ok() && (ogResponse.headers()["content-type"] ?? "").includes("image"),
+  `${ogResponse.status()} ${ogPath}`
+);
+
+// A stock 404 is one of the clearest signs a site was never finished.
+const missing = await page.goto(`${BASE}/repair/apple/no-such-phone-here`);
+check("an unknown page returns 404", missing.status() === 404, `${missing.status()}`);
+const missingCopy = await page.locator("main").innerText();
+check(
+  "the 404 page is ours and offers a way forward",
+  missingCopy.includes("That page isn't here") && missingCopy.includes("Find your phone")
+);
+
 // --- FAQ -------------------------------------------------------------------
 await page.goto(`${BASE}/faq`);
 const faqCount = await page.locator("details").count();
@@ -107,15 +238,6 @@ await page.goto(`${BASE}/repair/apple/iphone-13`);
 
 // Read each issue's listed price off the page so the check holds whatever the
 // catalogue currently says — the suite must not depend on seeded amounts.
-const listedPrice = async (name) => {
-  const row = page.getByRole("button", { name });
-  // The row has two bold spans: the price, and the selection tick (empty when
-  // unselected) — so keep only the one carrying an amount.
-  const amounts = (await row.locator("span.font-bold").allInnerTexts()).filter((t) =>
-    t.includes("₹")
-  );
-  return rupeesToNumber(amounts[amounts.length - 1]);
-};
 
 const screenPrice = await listedPrice(/Screen replacement/);
 const batteryPrice = await listedPrice(/Battery replacement/);
@@ -219,6 +341,11 @@ check("admin signs in to admin panel", true);
 await ap.goto(`${BASE}/admin/bookings`);
 await ap.waitForSelector(`text=${ref}`);
 check("booking appears in admin bookings", true);
+
+// Status changes are server actions, so the form only works once React has
+// hydrated. The bookings board grows with every run, and a long board takes
+// long enough to hydrate that clicking sooner does nothing at all.
+await ap.waitForLoadState("networkidle");
 
 // Move the booking forward and confirm the customer-facing page follows.
 const card = ap.locator("li.card", { hasText: ref });

@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: "Questions about phone repair, answered",
   description:
     "Do you come to my home? Is my data safe? Is the price fixed? What does the six-month warranty cover? Straight answers about doorstep phone repair in Delhi NCR.",
+  alternates: { canonical: "/faq" },
 };
 
 export default function FaqPage() {

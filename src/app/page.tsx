@@ -6,6 +6,8 @@ import { PincodeCheck } from "@/components/PincodeCheck";
 import { PhotoGallery } from "@/components/PhotoGallery";
 import { ReviewsSection } from "@/components/ReviewsSection";
 import { BrandTile } from "@/components/BrandTile";
+import { StructuredData } from "@/components/StructuredData";
+import { BUSINESS } from "@/lib/business";
 import { RepairIllustration } from "@/components/RepairIllustration";
 
 const PROMISES = [
@@ -50,6 +52,57 @@ export default async function HomePage() {
     orderBy: { pincode: "asc" },
   });
 
+  // A rating is only asserted when real reviews exist. Structured data that
+  // claims a rating the site can't show is a Google penalty and a lie to
+  // customers; there is no version of this worth faking.
+  const ratings = await db.review.findMany({
+    where: { published: true },
+    select: { rating: true },
+  });
+
+  const business = {
+    "@context": "https://schema.org",
+    "@type": "ProfessionalService",
+    name: BUSINESS.name,
+    description:
+      "Doorstep mobile phone repair across Delhi NCR. Fixed prices, genuine-grade parts and a six-month warranty, with payment taken only after the repair.",
+    url: BUSINESS.url,
+    telephone: BUSINESS.phone,
+    priceRange: "₹₹",
+    currenciesAccepted: "INR",
+    image: `${BUSINESS.url}/og-image.png`,
+    ...(BUSINESS.address ? { address: BUSINESS.address } : {}),
+    areaServed: BUSINESS.cities.map((city) => ({
+      "@type": "City",
+      name: city,
+    })),
+    openingHoursSpecification: {
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+      ],
+      opens: BUSINESS.opens,
+      closes: BUSINESS.closes,
+    },
+    ...(ratings.length > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: (
+              ratings.reduce((sum, r) => sum + r.rating, 0) / ratings.length
+            ).toFixed(1),
+            reviewCount: ratings.length,
+          },
+        }
+      : {}),
+  };
+
   // The cheapest screen job across the catalogue anchors the "from" price.
   const cheapestScreen = await db.priceItem.findFirst({
     where: { issue: { slug: "screen" }, active: true },
@@ -58,6 +111,8 @@ export default async function HomePage() {
 
   return (
     <>
+      <StructuredData data={business} />
+
       {/* Hero */}
       <section className="border-b border-surface-line bg-white">
         <div className="container-page grid items-center gap-12 py-16 lg:grid-cols-2 lg:py-24">
