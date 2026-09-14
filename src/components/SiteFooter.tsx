@@ -23,6 +23,8 @@ export function SiteFooter() {
             <li><Link href="/repair" className="hover:text-brand-600">Book a repair</Link></li>
             <li><Link href="/track" className="hover:text-brand-600">Track your booking</Link></li>
             <li><Link href="/quote" className="hover:text-brand-600">Model not listed?</Link></li>
+            <li><Link href="/faq" className="hover:text-brand-600">Questions</Link></li>
+            <li><Link href="/reviews" className="hover:text-brand-600">Reviews</Link></li>
             <li><Link href="/account" className="hover:text-brand-600">My bookings</Link></li>
           </ul>
         </div>

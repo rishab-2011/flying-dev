@@ -4,6 +4,8 @@ import { Icon } from "@/components/Icon";
 import { rupees } from "@/lib/format";
 import { PincodeCheck } from "@/components/PincodeCheck";
 import { PhotoGallery } from "@/components/PhotoGallery";
+import { ReviewsSection } from "@/components/ReviewsSection";
+import { BrandTile } from "@/components/BrandTile";
 import { RepairIllustration } from "@/components/RepairIllustration";
 
 const PROMISES = [
@@ -98,18 +100,12 @@ export default async function HomePage() {
             </h2>
             <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
               {brands.slice(0, 9).map((brand) => (
-                <Link
+                <BrandTile
                   key={brand.id}
-                  href={`/repair/${brand.slug}`}
-                  className="group rounded-xl border border-surface-line px-4 py-4 text-center transition hover:border-brand-300 hover:bg-brand-50"
-                >
-                  <p className="text-sm font-semibold group-hover:text-brand-700">
-                    {brand.name}
-                  </p>
-                  <p className="mt-0.5 text-xs text-ink-muted">
-                    {brand._count.models} models
-                  </p>
-                </Link>
+                  name={brand.name}
+                  slug={brand.slug}
+                  modelCount={brand._count.models}
+                />
               ))}
             </div>
             <Link
@@ -166,6 +162,8 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      <ReviewsSection />
 
       <PhotoGallery />
 

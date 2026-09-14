@@ -1,13 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { normalisePhone, isValidPhone } from "@/lib/format";
-import { createSession, destroySession, hashPassword, verifyPassword } from "@/lib/auth";
+import { createSession, destroySession, getSessionUser, hashPassword, verifyPassword } from "@/lib/auth";
 import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
 
-export type AuthState = { error?: string };
+export type AuthState = { error?: string; message?: string };
 
 const signupSchema = z.object({
   name: z.string().trim().min(2, "Please enter your name"),
@@ -96,4 +97,81 @@ export async function loginAction(
 export async function logoutAction(): Promise<void> {
   await destroySession();
   redirect("/");
+}
+
+const profileSchema = z.object({
+  name: z.string().trim().min(2, "Please enter your name"),
+  email: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
+});
+
+export async function updateProfileAction(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const session = await getSessionUser();
+  if (!session) return { error: "Please sign in again." };
+
+  const parsed = profileSchema.safeParse({
+    name: formData.get("name"),
+    email: formData.get("email") ?? "",
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const user = await db.user.update({
+    where: { id: session.id },
+    data: { name: parsed.data.name, email: parsed.data.email || null },
+  });
+
+  // The session carries the name, so it has to be reissued or the header keeps
+  // greeting them by the old one until the cookie expires.
+  await createSession({
+    id: user.id,
+    name: user.name,
+    phone: user.phone,
+    role: user.role === "ADMIN" ? "ADMIN" : "CUSTOMER",
+  });
+
+  revalidatePath("/account");
+  return { message: "Saved." };
+}
+
+const passwordSchema = z
+  .object({
+    current: z.string().min(1, "Enter your current password"),
+    next: z.string().min(8, "The new password must be at least 8 characters"),
+    confirm: z.string(),
+  })
+  .refine((v) => v.next === v.confirm, {
+    message: "The two new passwords don't match",
+  });
+
+export async function changePasswordAction(
+  _prev: AuthState,
+  formData: FormData
+): Promise<AuthState> {
+  const session = await getSessionUser();
+  if (!session) return { error: "Please sign in again." };
+
+  const parsed = passwordSchema.safeParse({
+    current: formData.get("current"),
+    next: formData.get("next"),
+    confirm: formData.get("confirm"),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const user = await db.user.findUnique({ where: { id: session.id } });
+  if (!user) return { error: "Please sign in again." };
+
+  // The current password is required so that a borrowed, unlocked phone can't
+  // be used to lock the real owner out of their own account.
+  if (!(await verifyPassword(parsed.data.current, user.password))) {
+    return { error: "That isn't your current password." };
+  }
+
+  await db.user.update({
+    where: { id: user.id },
+    data: { password: await hashPassword(parsed.data.next) },
+  });
+
+  return { message: "Password changed." };
 }

@@ -13,6 +13,40 @@ const page = await ctx.newPage();
 
 const rupeesToNumber = (text) => Number(text.replace(/[^0-9]/g, ""));
 
+// --- FAQ -------------------------------------------------------------------
+await page.goto(`${BASE}/faq`);
+const faqCount = await page.locator("details").count();
+check("FAQ page lists questions", faqCount >= 10, `${faqCount} questions`);
+
+const faqSchema = await page.locator('script[type="application/ld+json"]').innerText();
+check(
+  "FAQ carries FAQPage structured data",
+  JSON.parse(faqSchema)["@type"] === "FAQPage"
+);
+
+// An answer must be readable once opened.
+await page.locator("details").first().click();
+check(
+  "an answer opens",
+  (await page.locator("details").first().innerText()).length > 120
+);
+
+// --- Reviews ---------------------------------------------------------------
+// Nothing is seeded, so an empty site must say so rather than invent praise.
+await page.goto(`${BASE}/reviews`);
+const emptyCopy = await page.locator("main").innerText();
+const noneYet = emptyCopy.includes("No reviews here yet");
+
+if (noneYet) {
+  check("empty reviews page is honest about having none", true);
+  await page.goto(`${BASE}/`);
+  const homeCopy = await page.locator("main").innerText();
+  check(
+    "home page hides the reviews section when there are none",
+    !homeCopy.includes("What customers say")
+  );
+}
+
 // --- WhatsApp, reachable while browsing -----------------------------------
 // It used to appear only after a booking was placed and in the admin panel, so
 // a customer deciding whether to trust us never saw one.
@@ -144,6 +178,34 @@ await page.getByRole("button", { name: "Create account" }).click();
 await page.waitForURL(/\/account/, { timeout: 15000 });
 check("signup lands on account page", true);
 
+// --- Account settings ------------------------------------------------------
+// The signup above left this browser signed in as the new customer.
+await page.goto(`${BASE}/account`);
+await page.fill("#name", "Renamed Customer");
+await page.fill("#email", "renamed@example.com");
+await page.getByRole("button", { name: "Save changes" }).click();
+await page.waitForSelector("text=Saved.", { timeout: 15000 });
+await page.goto(`${BASE}/account`);
+check(
+  "profile changes are saved",
+  (await page.locator("#name").inputValue()) === "Renamed Customer"
+);
+
+// The header greets by name from the session cookie, so it must be reissued.
+check(
+  "the header reflects the new name",
+  (await page.locator("header").innerText()).includes("Renamed")
+);
+
+// Changing a password must require the current one, or a borrowed unlocked
+// phone could lock the real owner out.
+await page.fill("#current", "definitely-not-the-password");
+await page.fill("#next", "another-good-password");
+await page.fill("#confirm", "another-good-password");
+await page.getByRole("button", { name: "Change password" }).click();
+await page.waitForSelector("text=isn't your current password", { timeout: 15000 });
+check("a wrong current password is refused", true);
+
 // --- Admin -----------------------------------------------------------------
 const admin = await ctx.browser().newContext();
 const ap = await admin.newPage();
@@ -168,6 +230,50 @@ check("admin advances booking status", true);
 await page.goto(`${BASE}/track/${ref}`);
 const statusText = await page.locator("span.chip").first().innerText();
 check("tracking page reflects new status", statusText === "Confirmed", `got ${statusText}`);
+
+// --- Reviews: admin round trip ---------------------------------------------
+// The empty state was checked earlier; this proves a real review reaches the
+// site, and removes it again so the suite leaves nothing behind.
+const reviewName = `Test Reviewer ${Date.now().toString().slice(-6)}`;
+await ap.goto(`${BASE}/admin/reviews`);
+await ap.waitForLoadState("networkidle");
+await ap.fill("#customerName", reviewName);
+await ap.fill("#area", "Indirapuram, Ghaziabad");
+await ap.fill("#deviceLabel", "iPhone 13 screen");
+await ap.fill("#body", "Technician arrived on time and replaced the screen in under an hour.");
+await ap.getByRole("button", { name: "Add review" }).click();
+await ap.waitForSelector("text=Review added and published.", { timeout: 15000 });
+
+await page.goto(`${BASE}/reviews`);
+check(
+  "a published review appears on the reviews page",
+  (await page.locator("main").innerText()).includes(reviewName)
+);
+
+await page.goto(`${BASE}/`);
+check(
+  "the home page shows the reviews section once one exists",
+  (await page.locator("main").innerText()).includes("What customers say")
+);
+
+// Hiding it must take it off the site without deleting it.
+
+await ap.goto(`${BASE}/admin/reviews`);
+await ap.waitForLoadState("networkidle");
+await ap.locator("li.card", { hasText: reviewName }).getByRole("button", { name: "Hide" }).click();
+await ap.waitForSelector("text=Hidden from the site.", { timeout: 15000 });
+
+await page.goto(`${BASE}/reviews`);
+check(
+  "a hidden review is off the site",
+  !(await page.locator("main").innerText()).includes(reviewName)
+);
+
+await ap.goto(`${BASE}/admin/reviews`);
+await ap.waitForLoadState("networkidle");
+await ap.locator("li.card", { hasText: reviewName }).getByRole("button", { name: "Delete" }).click();
+await ap.waitForSelector(`li.card:has-text("${reviewName}")`, { state: "detached", timeout: 15000 });
+check("review deleted, leaving the site as found", true);
 
 // --- Price edit propagates to the storefront -------------------------------
 // Uses a value derived from the current one, then puts it back, so running the
