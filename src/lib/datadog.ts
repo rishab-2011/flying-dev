@@ -83,7 +83,10 @@ export async function startDatadog(consent: Consent | null): Promise<void> {
     clientToken: clientToken!,
     site,
     service: "flying-dev",
-    env: process.env.NODE_ENV,
+    // Resolved in next.config.mjs: "production" only for a real production
+    // deploy, "sandbox" for previews and branch builds, "development" locally.
+    env: process.env.NEXT_PUBLIC_DD_ENV || "development",
+    version: process.env.NEXT_PUBLIC_DD_VERSION || "dev",
     sessionSampleRate: 100,
     // Start closed. Nothing leaves the browser until consent is granted.
     trackingConsent: (consent === "granted" ? "granted" : "not-granted") as
