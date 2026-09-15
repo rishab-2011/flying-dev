@@ -32,8 +32,14 @@ jobs:
           POSTGRES_DB: flyingdev
         ports:
           - 5432:5432
+        # The health check names the role and database explicitly. Bare
+        # pg_isready probes as the invoking user -- root inside the container --
+        # which makes Postgres log a FATAL every interval and passes merely
+        # because the server answered at all. This checks the credentials the
+        # app actually uses. (These comments sit outside the folded block on
+        # purpose: inside it they would be passed to docker as arguments.)
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U flyingdev -d flyingdev"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
