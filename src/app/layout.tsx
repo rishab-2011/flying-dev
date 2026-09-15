@@ -5,6 +5,7 @@ import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { siteUrl } from "@/lib/siteUrl";
+import { ConsentBanner } from "@/components/ConsentBanner";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
@@ -65,6 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <WhatsAppButton
           number={(process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "918587949104").replace(/\D/g, "")}
         />
+        <ConsentBanner />
       </body>
     </html>
   );
