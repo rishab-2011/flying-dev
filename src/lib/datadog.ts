@@ -23,8 +23,16 @@
 export const CONSENT_STORAGE_KEY = "fd-analytics-consent";
 export type Consent = "granted" | "denied";
 
-/** Datadog's regional endpoint. Defaults to AP1, the closest to India. */
-const site = process.env.NEXT_PUBLIC_DD_SITE || "ap1.datadoghq.com";
+/**
+ * Datadog's regional endpoint.
+ *
+ * This is not a latency preference -- it must match the region the Datadog
+ * organisation itself lives in, which is fixed when the account is created and
+ * shows in the console's own URL. Ours is app.datadoghq.com, which is US1, so
+ * that is the default. Point it elsewhere and the SDK sends happily to a region
+ * the account cannot read: no error, just an empty dashboard.
+ */
+const site = process.env.NEXT_PUBLIC_DD_SITE || "datadoghq.com";
 const applicationId = process.env.NEXT_PUBLIC_DD_APPLICATION_ID;
 const clientToken = process.env.NEXT_PUBLIC_DD_CLIENT_TOKEN;
 
