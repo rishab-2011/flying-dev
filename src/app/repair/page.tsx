@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { Icon } from "@/components/Icon";
 
 export const metadata: Metadata = {
   title: "Mobile repair prices in Delhi NCR",
@@ -32,6 +33,21 @@ export default async function RepairPage() {
         Choose your brand, then your model. You'll see the exact price for each
         repair before you book anything.
       </p>
+
+      {/* Search sends people straight to a model page, but plenty land here
+          from the nav or a brand query with no idea what the service is. The
+          model pages already say this; saying nothing here was the gap. */}
+      <ul className="mt-5 flex flex-wrap gap-4 text-sm text-ink-soft">
+        <li className="flex items-center gap-2">
+          <Icon name="shield" className="h-4 w-4 text-brand-500" />6-month warranty
+        </li>
+        <li className="flex items-center gap-2">
+          <Icon name="home" className="h-4 w-4 text-brand-500" />Doorstep or pickup
+        </li>
+        <li className="flex items-center gap-2">
+          <Icon name="rupee" className="h-4 w-4 text-brand-500" />Pay after the repair
+        </li>
+      </ul>
 
       <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {brands.map((brand) => (

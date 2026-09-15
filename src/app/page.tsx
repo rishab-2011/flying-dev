@@ -141,8 +141,18 @@ export default async function HomePage() {
               </Link>
             </div>
 
-            <p className="mt-5 text-sm text-ink-muted">
-              No advance payment. Pay the technician after the repair is done.
+            {/* The single most reassuring thing this business does, and the
+                thing a stranger-at-your-door service most needs to say early.
+                It was grey 14px fine print under the buttons; nobody read it. */}
+            <p className="mt-6 flex items-start gap-2.5 rounded-xl border border-surface-line bg-surface-sunk px-4 py-3.5 text-sm leading-relaxed text-ink-soft">
+              <Icon name="shield" className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+              <span>
+                <span className="font-semibold text-ink">
+                  Nothing to pay until the repair is done.
+                </span>{" "}
+                You pay the technician after the work is finished and tested,
+                and every job carries a 6-month warranty.
+              </span>
             </p>
 
             <PincodeCheck areas={areas} />
