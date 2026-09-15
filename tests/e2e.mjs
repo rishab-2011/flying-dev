@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { launchChromium } from "./browser.mjs";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
 const results = [];
@@ -7,7 +7,7 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 }
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const browser = await launchChromium();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
 

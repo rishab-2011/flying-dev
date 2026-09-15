@@ -5,7 +5,7 @@
  * Drives the real login form repeatedly rather than calling the action
  * directly, so it exercises the same path an attacker's script would.
  */
-import { chromium } from "playwright";
+import { launchChromium } from "./browser.mjs";
 import { PrismaClient } from "@prisma/client";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3000";
@@ -28,7 +28,7 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`);
 };
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const browser = await launchChromium();
 const page = await (await browser.newContext()).newPage();
 
 // The per-phone login rule is 6 attempts per 15 minutes, and those counters

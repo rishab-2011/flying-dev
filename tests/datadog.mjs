@@ -8,7 +8,7 @@
  * NEXT_PUBLIC_* values are inlined at build time, so the mode is a property of
  * the build being served, not of this process.
  */
-import { chromium } from "playwright";
+import { launchChromium } from "./browser.mjs";
 
 const BASE = process.env.BASE || "http://localhost:3000";
 const MODE = process.env.MODE || "unconfigured";
@@ -19,7 +19,7 @@ function check(name, ok, detail = "") {
   if (!ok) failed++;
 }
 
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const browser = await launchChromium();
 const ctx = await browser.newContext();
 const page = await ctx.newPage();
 
