@@ -1,0 +1,110 @@
+# Runs the checks a contributor runs locally, on every pull request and on main.
+#
+# Netlify already deploys on its own: a push to main builds and publishes, and
+# a pull request gets a deploy preview. What it does not do is run the test
+# suite -- its build command only compiles. So until now a pull request could
+# merge, deploy, and reach customers with the suite failing, and nothing would
+# have said so. This is that missing half.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  # A new push supersedes the run in flight for the same branch.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: flyingdev
+          POSTGRES_PASSWORD: flyingdev
+          POSTGRES_DB: flyingdev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # A throwaway database inside the runner, thrown away when the job ends.
+      # This must never point at Neon: the suite signs up customers, creates
+      # bookings, edits a price and posts a review.
+      DATABASE_URL: postgresql://flyingdev:flyingdev@localhost:5432/flyingdev
+      DIRECT_URL: postgresql://flyingdev:flyingdev@localhost:5432/flyingdev
+      # Not a secret. It signs cookies for a database that exists for four
+      # minutes. The real one lives only in Netlify.
+      SESSION_SECRET: ci-only-throwaway-session-secret
+      # The catalogue seed is opt-in; without it the runner's database is empty
+      # and every test that needs a phone model fails.
+      SEED_ON_BUILD: "1"
+      # The suite signs in as this admin.
+      ADMIN_PHONE: "9000000001"
+      ADMIN_PASSWORD: flyingdev-admin
+      NEXT_PUBLIC_WHATSAPP_NUMBER: "918587949104"
+      NEXT_PUBLIC_SUPPORT_PHONE: "+91 85879 49104"
+      # Left unset on purpose: tests/datadog.mjs asserts that with no
+      # credentials the SDK never loads and no banner appears.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches NODE_VERSION in netlify.toml. If these drift, CI stops
+          # testing what actually gets deployed.
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        # Only Chromium: the suite drives nothing else, and the other two
+        # browsers are a slow download for no coverage.
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        # Also applies migrations and seeds the catalogue, exactly as the
+        # Netlify build command does.
+        run: npm run build
+
+      - name: Start the app
+        run: |
+          nohup npm run start > /tmp/app.log 2>&1 &
+          # Wait on /api/health rather than /, so this also proves the app can
+          # reach the database before any test blames a missing model on itself.
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "The app never became healthy. Server log:"
+          cat /tmp/app.log
+          exit 1
+
+      - name: Test
+        run: npm test
+
+      - name: Server log
+        # The browser tests fail with a Playwright timeout that says nothing
+        # about why; the server's own log usually does.
+        if: failure()
+        run: cat /tmp/app.log
