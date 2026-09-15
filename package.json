@@ -8,11 +8,14 @@
     "start": "next start",
     "lint": "next lint",
     "seed": "tsx prisma/seed.ts",
-    "test": "tsx tests/site-url.ts && node tests/e2e.mjs && node tests/rate-limit.mjs",
+    "test": "tsx tests/site-url.ts && node tests/e2e.mjs && node tests/rate-limit.mjs && node tests/datadog.mjs",
+    "test:datadog-configured": "MODE=configured node tests/datadog.mjs",
     "shots": "node tests/screenshots.mjs",
     "db:migrate": "prisma migrate deploy"
   },
   "dependencies": {
+    "@datadog/browser-logs": "^7.13.0",
+    "@datadog/browser-rum": "^7.13.0",
     "@neon/config": "^1.4.2",
     "@neon/env": "^1.3.2",
     "@prisma/client": "^6.19.3",

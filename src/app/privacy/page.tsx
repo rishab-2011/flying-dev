@@ -40,7 +40,23 @@ export default function PrivacyPage() {
         <p>
           Our servers record the internet address a request comes from, briefly,
           to limit abuse of the booking and login forms. We do not use
-          advertising trackers or third-party analytics cookies on this site.
+          advertising trackers, and we never sell or share your data with
+          advertisers.
+        </p>
+        <p>
+          <strong>Site measurement, only if you agree.</strong> We use Datadog to
+          see which pages are slow or failing — how long a page took to load,
+          which link was tapped, and any error the site hit. We ask first, and
+          nothing is sent unless you say yes. If you decline, the site works
+          exactly the same.
+        </p>
+        <p>
+          This never includes what you type into a form: your name, phone
+          number, address and password are masked before anything leaves your
+          browser, and we do not record your screen. Datadog processes this on
+          our behalf and may store it outside India. To change your answer,
+          clear this site&apos;s data in your browser settings and we will ask
+          again on your next visit.
         </p>
         <p>
           <strong>We do not collect anything from your device itself.</strong>{" "}
