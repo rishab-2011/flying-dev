@@ -8,6 +8,7 @@ import { getSessionUser } from "@/lib/auth";
 import { normalisePhone, isValidPhone } from "@/lib/format";
 import { notifyBookingCreated } from "@/lib/notify";
 import { checkRateLimit, rateLimitMessage } from "@/lib/rateLimit";
+import { isSlotBookable } from "@/lib/slots";
 
 export type BookingState = { error?: string };
 
@@ -65,6 +66,16 @@ export async function createBookingAction(
   // technicians' day with jobs that don't exist.
   const limit = await checkRateLimit("booking", normalisePhone(input.customerPhone));
   if (!limit.allowed) return { error: rateLimitMessage(limit) };
+
+  // The picker only offers bookable slots, but nothing stops a form being
+  // posted directly. Without this a booking could be written for yesterday,
+  // for a window that passed hours ago, or for a time we do not work --
+  // and it would be confirmed to the customer as though it were real.
+  if (!isSlotBookable(input.slotDate, input.slotWindow)) {
+    return {
+      error: "That time slot is no longer available. Please choose another.",
+    };
+  }
 
   const area = await db.serviceArea.findUnique({ where: { pincode: input.pincode } });
   if (!area || !area.active) {

@@ -3,6 +3,8 @@
 import { useActionState, useMemo, useState } from "react";
 import { SubmitButton } from "./SubmitButton";
 import { rupees, minutesToEta } from "@/lib/format";
+import { SlotPicker } from "./SlotPicker";
+import type { BookableDay } from "@/lib/slots";
 import type { BookingState } from "@/app/booking-actions";
 
 export type ServiceablePincode = {
@@ -15,36 +17,6 @@ export type ServiceablePincode = {
 
 export type QuotedIssue = { slug: string; name: string; price: number; etaMinutes: number };
 
-const SLOT_WINDOWS = [
-  "10:00 - 12:00",
-  "12:00 - 14:00",
-  "14:00 - 16:00",
-  "16:00 - 18:00",
-  "18:00 - 20:00",
-];
-
-/** The next seven days, starting today. */
-function upcomingDates(): { value: string; label: string }[] {
-  const out: { value: string; label: string }[] = [];
-  for (let i = 0; i < 7; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const value = [
-      d.getFullYear(),
-      String(d.getMonth() + 1).padStart(2, "0"),
-      String(d.getDate()).padStart(2, "0"),
-    ].join("-");
-    const label =
-      i === 0
-        ? "Today"
-        : i === 1
-          ? "Tomorrow"
-          : d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
-    out.push({ value, label });
-  }
-  return out;
-}
-
 export function BookingForm({
   action,
   modelId,
@@ -52,6 +24,8 @@ export function BookingForm({
   issues,
   areas,
   defaults,
+  days,
+  defaultDate,
 }: {
   action: (state: BookingState, formData: FormData) => Promise<BookingState>;
   modelId: string;
@@ -59,12 +33,14 @@ export function BookingForm({
   issues: QuotedIssue[];
   areas: ServiceablePincode[];
   defaults: { name: string; phone: string; email: string };
+  /* Computed on the server so the first render agrees on what "today" is. */
+  days: BookableDay[];
+  defaultDate: string;
 }) {
   const [state, formAction] = useActionState(action, {} as BookingState);
   const [mode, setMode] = useState<"DOORSTEP" | "PICKUP_DROP">("DOORSTEP");
   const [pincode, setPincode] = useState("");
 
-  const dates = useMemo(upcomingDates, []);
   const total = issues.reduce((sum, i) => sum + i.price, 0);
   const longestEta = issues.reduce((max, i) => Math.max(max, i.etaMinutes), 0);
 
@@ -235,38 +211,7 @@ export function BookingForm({
             We'll call before arriving. Slots are two hours wide.
           </p>
 
-          <div className="mt-4">
-            <label className="label" htmlFor="slotDate">Date</label>
-            <select id="slotDate" name="slotDate" className="field sm:max-w-xs" required>
-              {dates.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <fieldset className="mt-5">
-            <legend className="label">Time</legend>
-            <div className="grid gap-2.5 sm:grid-cols-3">
-              {SLOT_WINDOWS.map((window, index) => (
-                <label
-                  key={window}
-                  className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-surface-line px-4 py-3 text-sm transition has-[:checked]:border-brand-400 has-[:checked]:bg-brand-50"
-                >
-                  <input
-                    type="radio"
-                    name="slotWindow"
-                    value={window}
-                    defaultChecked={index === 0}
-                    className="accent-brand-500"
-                    required
-                  />
-                  {window}
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          <SlotPicker days={days} defaultDate={defaultDate} />
 
           <div className="mt-5">
             <label className="label" htmlFor="notes">
