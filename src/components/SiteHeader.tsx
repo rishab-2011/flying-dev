@@ -63,8 +63,12 @@ export async function SiteHeader() {
               Sign in
             </Link>
           )}
-          <Link href="/repair" className="btn-primary px-4 py-2">
-            Book a repair
+          {/* "Book a repair" wraps to two lines on a 390px screen once the
+              logo, call and menu buttons have taken their share. The short
+              label keeps it one line and the tap target full height; the full
+              wording returns as soon as there is room. */}
+          <Link href="/repair" className="btn-primary whitespace-nowrap px-4 py-2">
+            Book<span className="hidden sm:inline">&nbsp;a repair</span>
           </Link>
         </div>
       </div>
