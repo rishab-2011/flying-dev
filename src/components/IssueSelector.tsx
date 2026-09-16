@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "./Icon";
+import { DeviceDiagram } from "./DeviceDiagram";
 import { rupees, minutesToEta, discountPercent } from "@/lib/format";
 
 export type SelectableIssue = {
@@ -135,8 +136,15 @@ export function IssueSelector({
           </h2>
           <p className="mt-2 font-semibold">{modelLabel}</p>
 
+          {/* Marks the chosen faults on the device. Before anything is picked
+              it stands in for the empty state, which was one line of grey. */}
+          <DeviceDiagram
+            highlight={selected}
+            className="mx-auto mt-4 h-40 w-auto"
+          />
+
           {chosen.length === 0 ? (
-            <p className="mt-4 text-sm text-ink-muted">
+            <p className="mt-4 text-center text-sm text-ink-muted">
               Select an issue to see your price.
             </p>
           ) : (
