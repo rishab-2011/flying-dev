@@ -49,6 +49,16 @@ await p.waitForURL(/\/faq/, { timeout: 10000 });
 await p.waitForTimeout(400);
 check("menu closes after navigating", !(await p.locator("#mobile-menu").isVisible().catch(() => false)));
 
+// The header CTA must stay on one line. Raising button type from 14px to 15px
+// once pushed "Book a repair" onto two lines here, which reads as broken.
+const cta = p.locator("header a.btn-primary").first();
+const ctaBox = await cta.boundingBox();
+check(
+  "header CTA does not wrap at 390px",
+  ctaBox !== null && ctaBox.height < 50,
+  `${Math.round(ctaBox?.height ?? 0)}px tall`
+);
+
 // --- The hero guarantee ---
 await p.goto(BASE, { waitUntil: "networkidle" });
 const hero = await p.locator("section").first().innerText();

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "seed": "tsx prisma/seed.ts",
-    "test": "tsx tests/site-url.ts && node tests/datadog-env.mjs && node tests/health.mjs && node tests/mobile-nav.mjs && node tests/device-diagram.mjs && node tests/e2e.mjs && node tests/rate-limit.mjs && node tests/datadog.mjs",
+    "test": "tsx tests/site-url.ts && node tests/datadog-env.mjs && node tests/health.mjs && node tests/mobile-nav.mjs && node tests/device-diagram.mjs && node tests/typography.mjs && node tests/e2e.mjs && node tests/rate-limit.mjs && node tests/datadog.mjs",
     "test:datadog-configured": "MODE=configured node tests/datadog.mjs",
     "shots": "node tests/screenshots.mjs",
     "db:migrate": "prisma migrate deploy"

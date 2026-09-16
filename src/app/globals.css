@@ -8,6 +8,8 @@
   }
   body {
     @apply bg-surface-sunk text-ink antialiased;
+    /* Generous by default; components tighten where density is wanted. */
+    line-height: 1.6;
   }
   /* Kill the spinner on number inputs — pincode and phone fields use them. */
   input[type="number"]::-webkit-outer-spin-button,
@@ -27,7 +29,7 @@
   }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-[15px]
            font-semibold transition focus:outline-none focus-visible:ring-2
            focus-visible:ring-brand-400 focus-visible:ring-offset-2
            disabled:cursor-not-allowed disabled:opacity-50;
@@ -42,13 +44,20 @@
     @apply btn border border-surface-line bg-white text-ink hover:border-brand-300 hover:text-brand-600;
   }
 
+  /*
+   * 16px, not 14. Below 16px iOS Safari zooms the page when an input takes
+   * focus, so a seven-field booking form lurches and re-centres seven times --
+   * the clearest sign a form was never filled in on an iPhone. It also simply
+   * reads better: 14px inputs are dashboard density borrowed onto a consumer
+   * form.
+   */
   .field {
-    @apply w-full rounded-xl border border-surface-line bg-white px-4 py-3 text-sm
+    @apply w-full rounded-xl border border-surface-line bg-white px-4 py-3.5 text-base
            text-ink placeholder:text-ink-muted focus:border-brand-400 focus:outline-none
            focus:ring-2 focus:ring-brand-100;
   }
   .label {
-    @apply mb-1.5 block text-sm font-medium text-ink-soft;
+    @apply mb-2 block text-[15px] font-medium text-ink;
   }
 
   .chip {
