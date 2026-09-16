@@ -29,7 +29,7 @@ export function WhatsAppButton({ number }: { number: string }) {
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Chat with Flying Dev on WhatsApp"
-      className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 rounded-full bg-[#25D366] px-4 py-3 font-semibold text-white shadow-lift transition hover:bg-[#1FB855] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 sm:bottom-7 sm:right-7"
+      className="fixed bottom-5 right-5 z-50 [.has-estimate-bar_&]:bottom-28 lg:[.has-estimate-bar_&]:bottom-7 flex items-center gap-2.5 rounded-full bg-[#25D366] px-4 py-3 font-semibold text-white shadow-lift transition hover:bg-[#1FB855] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2 sm:bottom-7 sm:right-7"
     >
       <WhatsAppGlyph />
       <span className="hidden text-sm sm:inline">Chat with us</span>

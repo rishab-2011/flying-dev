@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "./Icon";
 import { DeviceDiagram } from "./DeviceDiagram";
@@ -43,6 +43,15 @@ export function IssueSelector({
       current.includes(slug) ? current.filter((s) => s !== slug) : [...current, slug]
     );
   }
+
+  // The WhatsApp button is fixed at bottom-right and would sit under the bar.
+  // A class on <body> lets it move out of the way without threading props
+  // through a tree that has no other reason to know about either of them.
+  useEffect(() => {
+    const showing = chosen.length > 0;
+    document.body.classList.toggle("has-estimate-bar", showing);
+    return () => document.body.classList.remove("has-estimate-bar");
+  }, [chosen.length]);
 
   function proceed() {
     if (chosen.length === 0) return;
@@ -128,7 +137,9 @@ export function IssueSelector({
         </ul>
       </div>
 
-      {/* Quote summary. Sticky on desktop, pinned to the bottom on mobile. */}
+      {/* Quote summary. Sticky beside the list on desktop; below lg it is a
+          fixed bar at the bottom of the screen instead -- see the end of this
+          component. The full card still follows the list for the detail. */}
       <aside className="lg:sticky lg:top-24 lg:self-start">
         <div className="card p-6">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
@@ -181,6 +192,30 @@ export function IssueSelector({
           </p>
         </div>
       </aside>
+
+      {/* Below lg the estimate card sits after every repair option -- on a phone
+          that put the Continue button about 1700px below the fold, two screens
+          of scrolling past choices already rejected. This carries the total and
+          the action with the customer instead. Hidden until something is
+          selected, so it never covers the list for no reason. */}
+      {chosen.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-surface-line bg-white/95 backdrop-blur lg:hidden">
+          <div className="container-page flex items-center justify-between gap-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs text-ink-muted">
+                {chosen.length} {chosen.length === 1 ? "repair" : "repairs"} · pay after
+              </p>
+              <p className="text-xl font-bold leading-tight text-brand-700">{rupees(total)}</p>
+            </div>
+            <button type="button" onClick={proceed} className="btn-primary shrink-0 px-5 py-3">
+              Continue
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Nothing should end up underneath the bar. */}
+      {chosen.length > 0 && <div aria-hidden className="h-24 lg:hidden" />}
     </div>
   );
 }
