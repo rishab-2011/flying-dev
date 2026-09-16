@@ -285,6 +285,15 @@ check("pincode serviceability confirmed inline", true);
 
 await page.fill("#addressLine", "A-14 Barakhamba Road, Connaught Place");
 await page.fill("#landmark", "Near the metro gate 5");
+
+// Pick a slot the way a customer does. No time is pre-selected: an appointment
+// a technician has to travel to should be chosen deliberately, not inherited
+// from whatever happened to be first in the list.
+const timeGroup = page.getByRole("radiogroup", { name: "Time" });
+const openSlot = timeGroup.locator("button[role=radio]:not(:disabled)").first();
+await openSlot.click();
+check("a time slot can be chosen", (await page.locator("input[name=slotWindow]").inputValue()) !== "");
+
 await page.getByRole("button", { name: "Confirm booking" }).click();
 await page.waitForURL(/\/track\/FD-/, { timeout: 20000 });
 

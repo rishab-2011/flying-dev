@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { BookingForm, type QuotedIssue } from "@/components/BookingForm";
+import { bookableDays, firstBookableDay } from "@/lib/slots";
 import { createBookingAction } from "../booking-actions";
 
 export const metadata: Metadata = {
@@ -78,6 +79,8 @@ export default async function BookPage({ searchParams }: Props) {
 
       <div className="mt-8">
         <BookingForm
+          days={bookableDays()}
+          defaultDate={firstBookableDay()}
           action={createBookingAction}
           modelId={model.id}
           modelLabel={label}
