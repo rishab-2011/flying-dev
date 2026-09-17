@@ -27,6 +27,26 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 
+# --- migration CLI ----------------------------------------------------------
+# The Prisma CLI, installed as its own self-contained tree.
+#
+# Copying node_modules/prisma out of the build tree looks like it should work
+# and does not: the CLI reaches into @prisma/config, which requires `effect`,
+# which requires more again. Cherry-picking that graph by hand is whack-a-mole
+# that ends in a container which builds fine and then dies on boot. Installing
+# it properly gets the whole graph and nothing else.
+#
+# The version is read from package.json rather than written here, so the CLI
+# applying a migration can never drift from the client generated against it.
+FROM base AS migrator
+COPY package.json ./
+RUN mkdir -p /cli \
+  && cd /cli \
+  && npm init -y > /dev/null \
+  && npm install --omit=dev --no-audit --no-fund \
+       "prisma@$(node -p 'const p=require("/app/package.json"); p.devDependencies?.prisma || p.dependencies?.prisma')"
+
+
 # --- build ------------------------------------------------------------------
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
@@ -85,11 +105,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Migrations run from this image at start-up, so the CLI and the migration
-# history have to travel with it. Tracing never sees these: nothing in the
-# application imports the Prisma CLI.
+# Migrations run from this image at start-up, so the migration history and the
+# CLI have to travel with it. Tracing never sees either: nothing in the
+# application imports them.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+COPY --from=migrator --chown=nextjs:nodejs /cli ./.prisma-cli
+
+# The generated client and its query engine. output: "standalone" traces both
+# already; copying them explicitly means a change in what Next decides to trace
+# cannot quietly leave the app unable to reach the database.
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 

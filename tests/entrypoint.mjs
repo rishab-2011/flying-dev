@@ -12,11 +12,16 @@
  * tested rather than trusted. The prisma CLI is stubbed: what is under test is
  * the shell logic, not Prisma.
  *
- * The stub sits at node_modules/prisma/build/index.js because that is the path
- * the image actually has. An earlier version of this file stubbed
- * node_modules/.bin/prisma instead -- a symlink npm creates at install time
- * and the Dockerfile does not copy -- so the suite passed while the container
- * died on boot with "not found". Mirror the image, or the test is fiction.
+ * The stub sits at .prisma-cli/node_modules/prisma/build/index.js because that
+ * is where the image puts the CLI. Two earlier versions of this file stubbed
+ * somewhere else and so passed while the container died on boot -- first
+ * node_modules/.bin/prisma, a symlink the image does not carry, then the
+ * copied prisma package, which could not resolve its own dependencies. Mirror
+ * the image, or the test is fiction.
+ *
+ * Note what this still cannot tell you: the stub is a one-line script, so it
+ * proves the path and the shell logic and nothing about whether the real CLI
+ * can load. Only the image job in CI, which boots the container, proves that.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, copyFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
@@ -24,11 +29,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "fd-entrypoint-"));
-mkdirSync(join(dir, "node_modules", "prisma", "build"), { recursive: true });
+mkdirSync(join(dir, ".prisma-cli", "node_modules", "prisma", "build"), { recursive: true });
 copyFileSync("docker-entrypoint.sh", join(dir, "docker-entrypoint.sh"));
 chmodSync(join(dir, "docker-entrypoint.sh"), 0o755);
 writeFileSync(
-  join(dir, "node_modules", "prisma", "build", "index.js"),
+  join(dir, ".prisma-cli", "node_modules", "prisma", "build", "index.js"),
   'console.log("STUB prisma " + process.argv.slice(2).join(" "));\n'
 );
 

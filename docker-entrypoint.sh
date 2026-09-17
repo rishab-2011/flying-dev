@@ -37,11 +37,13 @@ run_migrations() {
   esac
 
   echo "entrypoint: applying migrations…"
-  # The CLI's real entry point, not node_modules/.bin/prisma. That name is a
-  # symlink npm creates at install time, and the image copies the prisma
-  # package without the .bin directory -- so the shim is not there and the
-  # container dies on boot with "not found".
-  node ./node_modules/prisma/build/index.js migrate deploy
+  # The CLI lives in its own installed tree at .prisma-cli, not in the app's
+  # node_modules. Two earlier shapes of this line failed on boot:
+  # node_modules/.bin/prisma is a symlink npm makes at install time and the
+  # image does not carry .bin, and the copied prisma package could not resolve
+  # its own dependencies (@prisma/config -> effect). Entry point, own tree.
+  node ./.prisma-cli/node_modules/prisma/build/index.js migrate deploy \
+    --schema ./prisma/schema.prisma
 }
 
 case "${1:-serve}" in
