@@ -160,6 +160,13 @@ jobs:
           SEED_ON_BUILD=1 node scripts/seed-on-build.mjs
 
       - uses: docker/setup-buildx-action@v3
+        with:
+          # BuildKit itself runs in a container, so without this its "host"
+          # network is that container's own loopback and the build cannot see
+          # the Postgres service published on the runner. Putting the builder
+          # on the host network is what makes `network: host` below mean the
+          # runner's localhost.
+          driver-opts: network=host
 
       - name: Build
         uses: docker/build-push-action@v6
@@ -168,9 +175,12 @@ jobs:
           push: false
           load: true
           tags: flying-dev:ci
-          # The database is on the runner's own loopback, which the build only
-          # reaches on the host network.
+          # The build reads the catalogue, and that database is on the runner's
+          # own loopback. Host networking is only for this job: the deploy
+          # workflow talks to Neon over the internet and needs none of it.
           network: host
+          # BuildKit refuses --network host without the entitlement.
+          allow: network.host
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
