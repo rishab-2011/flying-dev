@@ -11,6 +11,12 @@
  * Failing immediately with the reason is worth a great deal, so the guards are
  * tested rather than trusted. The prisma CLI is stubbed: what is under test is
  * the shell logic, not Prisma.
+ *
+ * The stub sits at node_modules/prisma/build/index.js because that is the path
+ * the image actually has. An earlier version of this file stubbed
+ * node_modules/.bin/prisma instead -- a symlink npm creates at install time
+ * and the Dockerfile does not copy -- so the suite passed while the container
+ * died on boot with "not found". Mirror the image, or the test is fiction.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, copyFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
@@ -18,11 +24,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "fd-entrypoint-"));
-mkdirSync(join(dir, "node_modules", ".bin"), { recursive: true });
+mkdirSync(join(dir, "node_modules", "prisma", "build"), { recursive: true });
 copyFileSync("docker-entrypoint.sh", join(dir, "docker-entrypoint.sh"));
 chmodSync(join(dir, "docker-entrypoint.sh"), 0o755);
-writeFileSync(join(dir, "node_modules", ".bin", "prisma"), '#!/bin/sh\necho "STUB prisma $*"\n');
-chmodSync(join(dir, "node_modules", ".bin", "prisma"), 0o755);
+writeFileSync(
+  join(dir, "node_modules", "prisma", "build", "index.js"),
+  'console.log("STUB prisma " + process.argv.slice(2).join(" "));\n'
+);
 
 let failed = 0;
 function run(args, env) {

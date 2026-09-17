@@ -37,7 +37,11 @@ run_migrations() {
   esac
 
   echo "entrypoint: applying migrations…"
-  ./node_modules/.bin/prisma migrate deploy
+  # The CLI's real entry point, not node_modules/.bin/prisma. That name is a
+  # symlink npm creates at install time, and the image copies the prisma
+  # package without the .bin directory -- so the shim is not there and the
+  # container dies on boot with "not found".
+  node ./node_modules/prisma/build/index.js migrate deploy
 }
 
 case "${1:-serve}" in
