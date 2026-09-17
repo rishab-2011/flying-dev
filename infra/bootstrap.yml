@@ -39,6 +39,11 @@ Resources:
     Properties:
       RepositoryName: flying-dev
       ImageTagMutability: IMMUTABLE
+      # Delete the images along with the repository. Without this, deleting
+      # this stack fails on a repository that still has images in it -- and a
+      # failed teardown is the kind that leaves things running and billing,
+      # because it looks like it worked until you read the stack events.
+      EmptyOnDelete: true
       ImageScanningConfiguration:
         ScanOnPush: true
       EncryptionConfiguration:
