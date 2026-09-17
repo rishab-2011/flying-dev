@@ -24,6 +24,11 @@ Everything below is run **once**. Use `ap-south-1` (Mumbai): it is the closest
 region to Delhi NCR, and for a page a customer loads on mobile data the round
 trip is the part they feel.
 
+> **Planning to take this down again?** Read [Turning it off](#turning-it-off)
+> first. The load balancer bills by the hour whether or not anyone visits, and
+> a teardown you only think about afterwards is how a finished experiment keeps
+> charging.
+
 > Nothing in this file should ever be pasted into a chat window, a commit, or an
 > issue. Connection strings, the session secret and the Datadog **API** key are
 > all live credentials. (The Datadog *client token* and *application id* are
@@ -227,3 +232,103 @@ more conventional diagram and about $32 a month before a single byte moves.
 The load balancer is the floor here. It is also what gives you HTTPS, a stable
 address, health-checked rollouts and zero-downtime deploys, which is the trade
 being made.
+
+---
+
+## Turning it off
+
+Worth reading **before** you turn it on, not after. The load balancer bills by
+the hour whether or not anyone visits, so the thing that costs real money is
+forgetting this page exists.
+
+### A cost alarm, first
+
+Two minutes now, and you find out from an email rather than from a statement.
+
+```bash
+aws budgets create-budget \
+  --account-id "$(aws sts get-caller-identity --query Account --output text)" \
+  --budget '{
+    "BudgetName":"flying-dev",
+    "BudgetLimit":{"Amount":"60","Unit":"USD"},
+    "TimeUnit":"MONTHLY",
+    "BudgetType":"COST"
+  }' \
+  --notifications-with-subscribers '[{
+    "Notification":{
+      "NotificationType":"ACTUAL",
+      "ComparisonOperator":"GREATER_THAN",
+      "Threshold":80,
+      "ThresholdType":"PERCENTAGE"
+    },
+    "Subscribers":[{"SubscriptionType":"EMAIL","Address":"you@example.com"}]
+  }]'
+```
+
+Credits are spent silently and stop covering you without warning, so set this
+even while they last.
+
+### Pausing without tearing down
+
+```bash
+aws ecs update-service --cluster flying-dev --service flying-dev --desired-count 0
+```
+
+Stops the Fargate charge (~$15/month) and keeps everything else in place;
+`--desired-count 1` brings it back. It does **not** stop the load balancer,
+which is most of the bill, so this is for a quiet week, not a quiet month.
+
+### Tearing it down
+
+Order matters. The service stack holds everything that costs money, so it goes
+first; if you only get one command done, make it that one.
+
+```bash
+# 1. The expensive half: load balancer, Fargate tasks, VPC, log group.
+aws cloudformation delete-stack --stack-name flying-dev-service
+aws cloudformation wait stack-delete-complete --stack-name flying-dev-service
+
+# 2. The registry and the deploy role. EmptyOnDelete means the images go too.
+aws cloudformation delete-stack --stack-name flying-dev-bootstrap
+aws cloudformation wait stack-delete-complete --stack-name flying-dev-bootstrap
+```
+
+Those `wait` calls are the point. `delete-stack` returns immediately and a
+deletion can still fail minutes later — check it finished rather than assuming:
+
+```bash
+aws cloudformation describe-stacks --stack-name flying-dev-service 2>&1 | tail -1
+# "does not exist" is what you want to see.
+```
+
+**The secrets are not in either stack.** They were created with the CLI, so
+CloudFormation neither knows nor cares about them. They cost a few cents a
+month each and, more to the point, they hold a live database URL and your
+session secret:
+
+```bash
+aws secretsmanager delete-secret --secret-id flying-dev/app --force-delete-without-recovery
+aws secretsmanager delete-secret --secret-id flying-dev/datadog --force-delete-without-recovery
+```
+
+Without `--force-delete-without-recovery` they sit in a 30-day recovery window,
+still billing, and the name stays taken — which is its own surprise if you ever
+rebuild this.
+
+Then confirm nothing is left running:
+
+```bash
+aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerName'
+aws ecs list-clusters
+aws ec2 describe-vpcs --query 'Vpcs[?!IsDefault].VpcId'
+```
+
+Empty (or default-only) on all three means you are done. Last, delete the
+Datadog API key in Datadog itself and the RUM application if you are finished
+with it — those live outside AWS entirely.
+
+### What survives, and should
+
+Netlify, Neon and the repository are untouched by any of the above. Tearing
+down AWS puts you back exactly where you were: a working site on Netlify, with
+the whole Fargate setup still in `infra/` if you ever want it again.
