@@ -1,0 +1,190 @@
+# Ships main to ECS Fargate.
+#
+# There are no AWS keys in this repository. The job presents GitHub's OIDC
+# token, which names the repo and branch it is running for, and AWS trades it
+# for credentials that expire when the job does -- see infra/bootstrap.yml. A
+# fork's pull request produces a different subject claim and is refused, so
+# there is nothing here for someone else's PR to steal or misuse.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never two rollouts at once. The second would register a task definition
+  # from a half-applied state and the older image could win.
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write   # required to request the OIDC token
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  ECR_REPOSITORY: flying-dev
+  ECS_CLUSTER: flying-dev
+  ECS_SERVICE: flying-dev
+  TASK_FAMILY: flying-dev
+
+jobs:
+  deploy:
+    name: Build image and roll out
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Has this commit already been built?
+        id: existing
+        # The ECR repository is set to immutable tags, so pushing the same
+        # commit twice is an error rather than a no-op. A re-run should be able
+        # to roll out an image that is already there.
+        run: |
+          if aws ecr describe-images \
+               --repository-name "$ECR_REPOSITORY" \
+               --image-ids imageTag="$GITHUB_SHA" >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Image for $GITHUB_SHA already exists; skipping the build."
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Buildx
+        if: steps.existing.outputs.found == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        if: steps.existing.outputs.found == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          # Layer cache in the registry, so a dependency-only change does not
+          # reinstall node_modules from scratch on every deploy.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # The build reads the catalogue out of the database to prerender
+          # /repair/[brand] and the sitemap. Mounted for the build, never
+          # written into a layer.
+          secrets: |
+            database_url=${{ secrets.BUILD_DATABASE_URL }}
+            direct_url=${{ secrets.BUILD_DIRECT_URL }}
+          build-args: |
+            NEXT_PUBLIC_DD_ENV=production
+            NEXT_PUBLIC_DD_VERSION=${{ github.sha }}
+            NEXT_PUBLIC_DD_APPLICATION_ID=${{ vars.NEXT_PUBLIC_DD_APPLICATION_ID }}
+            NEXT_PUBLIC_DD_CLIENT_TOKEN=${{ vars.NEXT_PUBLIC_DD_CLIENT_TOKEN }}
+            NEXT_PUBLIC_DD_SITE=${{ vars.NEXT_PUBLIC_DD_SITE }}
+            NEXT_PUBLIC_WHATSAPP_NUMBER=${{ vars.NEXT_PUBLIC_WHATSAPP_NUMBER }}
+            NEXT_PUBLIC_SUPPORT_PHONE=${{ vars.NEXT_PUBLIC_SUPPORT_PHONE }}
+            NEXT_PUBLIC_SITE_URL=${{ vars.NEXT_PUBLIC_SITE_URL }}
+
+      - name: Does the service exist yet?
+        id: service
+        # Chicken and egg on the very first run: infra/service.yml needs an
+        # image URI to create the task definition with, and this workflow needs
+        # the task definition to exist before it can roll anything out. So the
+        # first run stops here having pushed an image, which is exactly what
+        # the service stack is waiting for. Every run after that deploys.
+        run: |
+          state=$(aws ecs describe-services \
+                    --cluster "$ECS_CLUSTER" \
+                    --services "$ECS_SERVICE" \
+                    --query 'services[0].status' --output text 2>/dev/null || echo NONE)
+          if [ "$state" = "ACTIVE" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Image pushed — now create the service"
+              echo
+              echo "The ECS service does not exist yet, so there was nothing to roll out."
+              echo "Create it with this image, then re-run this workflow:"
+              echo
+              echo '```'
+              echo "aws cloudformation deploy \\"
+              echo "  --stack-name flying-dev-service \\"
+              echo "  --template-file infra/service.yml \\"
+              echo "  --capabilities CAPABILITY_NAMED_IAM \\"
+              echo "  --parameter-overrides \\"
+              echo "    ContainerImage=${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:$GITHUB_SHA \\"
+              echo "    AppSecretArn=<your flying-dev/app secret arn>"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Read the live task definition
+        if: steps.service.outputs.exists == 'true'
+        # Taken from what is actually running rather than from a file in the
+        # repo, so anything changed by a CloudFormation update -- a new secret,
+        # a memory bump -- is carried forward instead of being reverted by the
+        # next deploy.
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_FAMILY" \
+            --query taskDefinition > task-definition.json
+
+      - name: Point it at the new image
+        id: render
+        if: steps.service.outputs.exists == 'true'
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: app
+          image: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+
+      - name: Roll out
+        if: steps.service.outputs.exists == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          # Waits for the new tasks to pass their health checks and the old
+          # ones to drain. The service's circuit breaker rolls back on failure,
+          # so a build that cannot migrate puts the previous version back
+          # rather than leaving the site down.
+          wait-for-service-stability: true
+
+      - name: Check the deployed version answers
+        if: steps.service.outputs.exists == 'true'
+        run: |
+          url="${{ vars.PUBLIC_HEALTH_URL }}"
+          if [ -z "$url" ]; then
+            echo "PUBLIC_HEALTH_URL is not set; skipping the post-deploy check."
+            exit 0
+          fi
+
+          # The rollout already waited for stability, so a failure here is the
+          # deploy's, not a race with it.
+          body=$(curl -fsS --max-time 20 "$url") || {
+            echo "::error::$url did not answer after the rollout."
+            exit 1
+          }
+          echo "$body"
+
+          # The tasks are healthy but they could still be the *old* ones if the
+          # rollout silently no-oped, so confirm the version is this commit.
+          short="$(echo "$GITHUB_SHA" | cut -c1-7)"
+          case "$body" in
+            *"\"version\":\"$short\""*)
+              echo "Live and serving $short." ;;
+            *)
+              echo "::error::Health check passed but is not reporting $short."
+              exit 1 ;;
+          esac
