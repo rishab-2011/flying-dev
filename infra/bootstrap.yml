@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Flying Dev — one-time bootstrap: the image registry and the identity GitHub
+  Actions assumes to deploy. Created once and then left alone; the service
+  stack and the deploy workflow both depend on what this produces.
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: rishab-2011
+  GitHubRepo:
+    Type: String
+    Default: flying-dev
+  DeployBranch:
+    Type: String
+    Default: main
+    Description: >-
+      Only this branch can assume the deploy role. A pull request from a fork
+      runs with a different subject claim and is refused, which is what stops a
+      stranger's PR from deploying itself.
+  CreateOidcProvider:
+    Type: String
+    AllowedValues: ["yes", "no"]
+    Default: "yes"
+    Description: >-
+      An AWS account can hold exactly one provider per URL. Set this to "no" if
+      token.actions.githubusercontent.com already exists in this account, or
+      the stack fails with EntityAlreadyExists.
+
+Conditions:
+  ShouldCreateOidcProvider: !Equals [!Ref CreateOidcProvider, "yes"]
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Image registry
+  # ---------------------------------------------------------------------------
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: flying-dev
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        # Images are tagged with the commit sha, so they accumulate one per
+        # deploy forever. Keeping thirty leaves plenty of room to roll back to
+        # something known-good without paying to store a year of dead builds.
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images after a day",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the last 30 tagged images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 30
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+  # ---------------------------------------------------------------------------
+  # GitHub Actions identity
+  #
+  # No access keys anywhere. Actions presents a short-lived OIDC token that
+  # names the repository and branch it is running for, and AWS exchanges it for
+  # credentials that expire with the job. There is nothing in GitHub's secret
+  # store for an attacker to steal, and nothing to rotate.
+  # ---------------------------------------------------------------------------
+  OidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # IAM stopped verifying this against the live certificate chain, but the
+      # field is still required.
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: flying-dev-github-deploy
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOwner}/${GitHubRepo}:ref:refs/heads/${DeployBranch}
+      Policies:
+        - PolicyName: push-image-and-roll-out
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AuthenticateToEcr
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: PushToOurRepositoryOnly
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:DescribeImages
+                Resource: !GetAtt Repository.Arn
+              - Sid: RollOutTheService
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:DescribeTaskDefinition
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                  - ecs:RegisterTaskDefinition
+                  - ecs:UpdateService
+                  - ecs:RunTask
+                Resource: "*"
+              - Sid: PassTheTaskRolesToEcs
+                # RegisterTaskDefinition names the roles the task will run as,
+                # which counts as passing them. Scoped to this service's two
+                # roles so the deploy cannot hand ECS some more privileged role
+                # that happens to exist in the account.
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/flying-dev-task-execution
+                  - !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/flying-dev-task
+
+Outputs:
+  RepositoryUri:
+    Description: Push images here; the deploy workflow needs this as ECR_REPOSITORY.
+    Value: !GetAtt Repository.RepositoryUri
+    Export:
+      Name: flying-dev-repository-uri
+  DeployRoleArn:
+    Description: Set this as the AWS_DEPLOY_ROLE_ARN repository variable in GitHub.
+    Value: !GetAtt DeployRole.Arn
+    Export:
+      Name: flying-dev-deploy-role-arn

@@ -11,9 +11,11 @@
  * timings alongside real customer traffic, which is how a dashboard stops
  * meaning anything.
  *
- * CONTEXT is Netlify's ("production", "deploy-preview", "branch-deploy"), and
- * the fallbacks below keep this working if the site moves to AWS or anywhere
- * else. An explicit NEXT_PUBLIC_DD_ENV always wins.
+ * CONTEXT is Netlify's ("production", "deploy-preview", "branch-deploy"). On
+ * AWS there is no such signal -- the image is built by GitHub Actions, which
+ * knows the commit but not what the commit is for -- so the deploy workflow
+ * passes NEXT_PUBLIC_DD_ENV in as a build argument instead. An explicit
+ * NEXT_PUBLIC_DD_ENV always wins, which is what makes that work.
  */
 export function datadogEnv() {
   if (process.env.NEXT_PUBLIC_DD_ENV) return process.env.NEXT_PUBLIC_DD_ENV;
@@ -41,6 +43,20 @@ export function datadogVersion() {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Emit .next/standalone: a self-contained server plus only the node_modules
+  // the traced code actually reaches. The Docker image copies that instead of
+  // the full dependency tree, which is the difference between an image Fargate
+  // pulls in seconds and one it pulls in minutes.
+  //
+  // Opt-in rather than always on, and only the Dockerfile opts in. Netlify is
+  // still the live host until AWS takes over, its Next runtime does its own
+  // packaging, and changing the shape of the build output underneath a host
+  // that currently works is not a risk worth taking for no gain there.
+  output: process.env.BUILD_STANDALONE === "1" ? "standalone" : undefined,
+  // dd-trace works by monkey-patching modules as they are required, so it has
+  // to be left alone in node_modules. Bundling it through webpack rewrites the
+  // very require() calls it needs to intercept and it silently traces nothing.
+  serverExternalPackages: ["dd-trace"],
   env: {
     NEXT_PUBLIC_DD_ENV: datadogEnv(),
     NEXT_PUBLIC_DD_VERSION: datadogVersion(),

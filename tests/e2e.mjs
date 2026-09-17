@@ -414,17 +414,27 @@ check("tracking page reflects new status", statusText === "Confirmed", `got ${st
 // The empty state was checked earlier; this proves a real review reaches the
 // site, and removes it again so the suite leaves nothing behind.
 const reviewName = `Test Reviewer ${Date.now().toString().slice(-6)}`;
-await ap.goto(`${BASE}/admin/reviews`);
-await ap.waitForLoadState("networkidle");
-await ap.fill("#customerName", reviewName);
-await ap.fill("#area", "Indirapuram, Ghaziabad");
-await ap.fill("#deviceLabel", "iPhone 13 screen");
-await ap.fill("#body", "Technician arrived on time and replaced the screen in under an hour.");
-await ap.getByRole("button", { name: "Add review" }).click();
 // Assert the outcome, not the flash. These forms are progressively enhanced:
 // an un-hydrated click still posts natively and still works, it just reloads
 // the page and discards the useActionState message with the old document.
-await ap.waitForSelector(`li.card:has-text("${reviewName}")`, { timeout: 20000 });
+// Retried whole, because a click landing mid-hydration can be swallowed
+// outright; the name carries a timestamp, so re-checking for the card first
+// means a retry cannot add a second one.
+await until(
+  async () => {
+    await ap.goto(`${BASE}/admin/reviews`);
+    await ap.waitForLoadState("networkidle");
+    if ((await ap.locator("li.card", { hasText: reviewName }).count()) > 0) return true;
+    await ap.fill("#customerName", reviewName);
+    await ap.fill("#area", "Indirapuram, Ghaziabad");
+    await ap.fill("#deviceLabel", "iPhone 13 screen");
+    await ap.fill("#body", "Technician arrived on time and replaced the screen in under an hour.");
+    await ap.getByRole("button", { name: "Add review" }).click();
+    await ap.waitForTimeout(1500);
+    return false;
+  },
+  { timeout: 45000, interval: 0 }
+);
 
 await page.goto(`${BASE}/reviews`);
 check(
@@ -440,14 +450,24 @@ check(
 
 // Hiding it must take it off the site without deleting it.
 
-await ap.goto(`${BASE}/admin/reviews`);
-await ap.waitForLoadState("networkidle");
-await ap.locator("li.card", { hasText: reviewName }).getByRole("button", { name: "Hide" }).click();
-// Hidden cards keep their text and swap the chip to "Hidden" (the button then
-// reads "Publish"), so wait for that rather than for the flash message.
-await ap.waitForSelector(
-  `li.card:has-text("${reviewName}") .chip:has-text("Hidden")`,
-  { timeout: 20000 }
+// Retried as a whole, for the same reason the booking status form above is:
+// these are progressively-enhanced server actions, networkidle settles on the
+// network while hydration is still CPU work, and a click landing in that
+// window can be swallowed. Hidden cards keep their text and swap the chip to
+// "Hidden" (the button then reads "Publish"), so re-reading the board on a
+// fresh load is true whichever path the click took. Hiding twice would
+// un-hide, so the click only happens while the card is still published.
+await until(
+  async () => {
+    await ap.goto(`${BASE}/admin/reviews`);
+    await ap.waitForLoadState("networkidle");
+    const card = ap.locator("li.card", { hasText: reviewName });
+    if ((await card.locator('.chip:has-text("Hidden")').count()) > 0) return true;
+    await card.getByRole("button", { name: "Hide" }).click();
+    await ap.waitForTimeout(1500);
+    return false;
+  },
+  { timeout: 45000, interval: 0 }
 );
 
 await page.goto(`${BASE}/reviews`);
@@ -456,10 +476,20 @@ check(
   !(await page.locator("main").innerText()).includes(reviewName)
 );
 
-await ap.goto(`${BASE}/admin/reviews`);
-await ap.waitForLoadState("networkidle");
-await ap.locator("li.card", { hasText: reviewName }).getByRole("button", { name: "Delete" }).click();
-await ap.waitForSelector(`li.card:has-text("${reviewName}")`, { state: "detached", timeout: 15000 });
+// Same treatment. Deleting is idempotent from the test's point of view: once
+// the card is gone there is nothing left to click.
+await until(
+  async () => {
+    await ap.goto(`${BASE}/admin/reviews`);
+    await ap.waitForLoadState("networkidle");
+    const card = ap.locator("li.card", { hasText: reviewName });
+    if ((await card.count()) === 0) return true;
+    await card.getByRole("button", { name: "Delete" }).click();
+    await ap.waitForTimeout(1500);
+    return false;
+  },
+  { timeout: 45000, interval: 0 }
+);
 check("review deleted, leaving the site as found", true);
 
 // --- Price edit propagates to the storefront -------------------------------

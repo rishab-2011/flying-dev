@@ -1,0 +1,23 @@
+# Everything here would either bloat the build context, invalidate the cache on
+# every run, or -- in the case of .env -- put live credentials in an image.
+.git
+.github
+node_modules
+.next
+out
+shots
+tests
+*.tsbuildinfo
+npm-debug.log*
+
+# Never. The connection string, the session secret and the admin password all
+# live here; the build gets what it needs as BuildKit secrets and build args.
+.env
+.env.local
+
+# Netlify's, not ours.
+netlify.toml
+
+Dockerfile
+.dockerignore
+README.md

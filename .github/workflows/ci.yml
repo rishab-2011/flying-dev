@@ -1,10 +1,13 @@
 # Runs the checks a contributor runs locally, on every pull request and on main.
 #
-# Netlify already deploys on its own: a push to main builds and publishes, and
-# a pull request gets a deploy preview. What it does not do is run the test
-# suite -- its build command only compiles. So until now a pull request could
-# merge, deploy, and reach customers with the suite failing, and nothing would
-# have said so. This is that missing half.
+# Two jobs. `test` is the suite the deploying host does not run: a build command
+# only compiles, so without this a pull request could merge, deploy, and reach
+# customers with the suite failing and nothing would have said so.
+#
+# `image` builds the Docker image that ECS actually runs (see deploy.yml). It is
+# separate because it proves a different thing -- not that the code is correct,
+# but that the artefact assembles and serves. Both halves of that have broken
+# before in ways a passing test suite would not have noticed.
 name: CI
 
 on:
@@ -114,3 +117,105 @@ jobs:
         # about why; the server's own log usually does.
         if: failure()
         run: cat /tmp/app.log
+
+  image:
+    name: Build the container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # The image build is not a formality: `next build` prerenders /repair/[brand]
+    # and the sitemap, so it opens the database. Without a server here the
+    # Dockerfile could only be proven correct by a failed production deploy.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: flyingdev
+          POSTGRES_PASSWORD: flyingdev
+          POSTGRES_DB: flyingdev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flyingdev -d flyingdev"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://flyingdev:flyingdev@localhost:5432/flyingdev
+      DIRECT_URL: postgresql://flyingdev:flyingdev@localhost:5432/flyingdev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Prepare the database the build reads
+        run: |
+          npm ci
+          npx prisma migrate deploy
+          SEED_ON_BUILD=1 node scripts/seed-on-build.mjs
+
+      - uses: docker/setup-buildx-action@v3
+        with:
+          # BuildKit itself runs in a container, so without this its "host"
+          # network is that container's own loopback and the build cannot see
+          # the Postgres service published on the runner. Putting the builder
+          # on the host network is what makes `network: host` below mean the
+          # runner's localhost.
+          driver-opts: network=host
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: flying-dev:ci
+          # The build reads the catalogue, and that database is on the runner's
+          # own loopback. Host networking is only for this job: the deploy
+          # workflow talks to Neon over the internet and needs none of it.
+          network: host
+          # BuildKit refuses --network host without the entitlement.
+          allow: network.host
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          secrets: |
+            database_url=${{ env.DATABASE_URL }}
+            direct_url=${{ env.DIRECT_URL }}
+          build-args: |
+            NEXT_PUBLIC_DD_ENV=sandbox
+            NEXT_PUBLIC_DD_VERSION=${{ github.sha }}
+
+      - name: Run it and check it serves
+        run: |
+          docker run -d --name flying-dev-ci --network host \
+            -e DATABASE_URL="$DATABASE_URL" \
+            -e DIRECT_URL="$DIRECT_URL" \
+            -e SESSION_SECRET=ci-only-throwaway-session-secret \
+            flying-dev:ci
+
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "healthy after ${i}s"
+              # A container that boots but serves an unstyled page is the
+              # failure this catches: .next/static is not part of the
+              # standalone output and has to be copied in separately.
+              chunk=$(docker exec flying-dev-ci sh -c 'ls .next/static/chunks/*.js | head -1' | sed 's|.next/static/||')
+              curl -fsS -o /dev/null "http://localhost:3000/_next/static/$chunk"
+              echo "static assets served ($chunk)"
+              curl -sS http://localhost:3000/api/health
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "The container never became healthy:"
+          docker logs flying-dev-ci
+          exit 1
+
+      - name: Container log
+        if: failure()
+        run: docker logs flying-dev-ci || true

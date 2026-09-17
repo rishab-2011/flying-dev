@@ -1,0 +1,452 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Flying Dev — the running service: network, load balancer, and a Fargate task
+  holding the app alongside a Datadog Agent sidecar.
+
+Parameters:
+  ContainerImage:
+    Type: String
+    Description: >-
+      Full image URI including tag. The deploy workflow registers a new task
+      definition revision per commit, so this value only seeds the first one —
+      updating the stack later will not undo a deploy, it just re-points at
+      whatever you name here.
+
+  AppSecretArn:
+    Type: String
+    Description: >-
+      Secrets Manager secret holding DATABASE_URL, DIRECT_URL and
+      SESSION_SECRET as JSON keys. Never parameters: a CloudFormation parameter
+      is readable by anyone who can describe the stack.
+
+  DatadogApiKeySecretArn:
+    Type: String
+    Default: ""
+    Description: >-
+      Secrets Manager secret holding the Datadog API key as a plain string.
+      Leave empty and the Agent sidecar is not created at all — the app detects
+      the missing DD_AGENT_HOST and never initialises the tracer, so the
+      service runs exactly as it would without Datadog.
+
+  DatadogSite:
+    Type: String
+    Default: datadoghq.com
+    Description: >-
+      Must match the region the Datadog organisation was created in, which you
+      can read off the console URL. Wrong value means data is accepted and
+      filed somewhere the account cannot read it.
+
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: >-
+      ACM certificate for the custom domain. Leave empty to listen on plain
+      HTTP at the load balancer's own address, which is enough to prove the
+      service works before DNS is moved.
+
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [production, staging, sandbox]
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+
+  Cpu:
+    Type: String
+    Default: "512"
+    AllowedValues: ["256", "512", "1024", "2048"]
+    Description: >-
+      512 (.5 vCPU) rather than 256, because the Datadog Agent shares this
+      budget with the app and a Next server that has to fight for CPU shows up
+      as slow first-byte times under exactly the traffic you care about.
+
+  Memory:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "4096"]
+
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+
+Conditions:
+  HasDatadog: !Not [!Equals [!Ref DatadogApiKeySecretArn, ""]]
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, ""]]
+
+Resources:
+  # ---------------------------------------------------------------------------
+  # Network
+  #
+  # Two public subnets, no NAT gateway. Fargate tasks get public IPs and reach
+  # ECR and Neon directly. A NAT gateway would be the tidier diagram and about
+  # $32 a month before a byte moves, which is not worth paying for a service
+  # whose only inbound path is already the load balancer's security group.
+  # ---------------------------------------------------------------------------
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.20.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: flying-dev }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: flying-dev }]
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: flying-dev-a }]
+
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.20.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags: [{ Key: Name, Value: flying-dev-b }]
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetARouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref RouteTable
+
+  SubnetBRouteAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref RouteTable
+
+  # ---------------------------------------------------------------------------
+  # Security groups
+  # ---------------------------------------------------------------------------
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public entry point for Flying Dev
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP, redirected to HTTPS when a certificate is configured
+        - !If
+          - HasCertificate
+          - IpProtocol: tcp
+            FromPort: 443
+            ToPort: 443
+            CidrIp: 0.0.0.0/0
+            Description: HTTPS
+          - !Ref AWS::NoValue
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Flying Dev tasks
+      VpcId: !Ref Vpc
+      # No CidrIp rule. The task has a public IP so it can reach ECR and Neon,
+      # but nothing on the internet can open a connection to it — only the load
+      # balancer's security group can, and only on the app port.
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+          Description: Only the load balancer may reach the app
+
+  # ---------------------------------------------------------------------------
+  # Load balancer
+  # ---------------------------------------------------------------------------
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: flying-dev
+      Scheme: internet-facing
+      Type: application
+      Subnets: [!Ref SubnetA, !Ref SubnetB]
+      SecurityGroups: [!Ref LoadBalancerSecurityGroup]
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref Vpc
+      Port: 3000
+      Protocol: HTTP
+      TargetType: ip
+      # /api/health opens a real connection and runs SELECT 1, so a task whose
+      # database is unreachable is pulled out of rotation instead of serving
+      # error pages. It returns 503 in that case, which is why the matcher is
+      # exactly 200 rather than 2xx.
+      HealthCheckPath: /api/health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200"
+      TargetGroupAttributes:
+        # Next finishes in-flight requests quickly; no need to hold connections
+        # open for the default five minutes during a rollout.
+        - Key: deregistration_delay.timeout_seconds
+          Value: "20"
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - !If
+          - HasCertificate
+          # Once there is a certificate, plain HTTP exists only to send people
+          # to HTTPS. 301 so browsers and search engines stop asking.
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroup
+
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasCertificate
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ---------------------------------------------------------------------------
+  # Roles
+  #
+  # Two of them, and the split matters. The execution role belongs to the ECS
+  # agent and is used before the container starts, to pull the image and read
+  # secrets. The task role is what the application code itself runs as — which
+  # is why it has no policies: the app talks to Neon and to the sidecar, and
+  # needs nothing from the AWS API.
+  # ---------------------------------------------------------------------------
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: flying-dev-task-execution
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-our-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !If
+                  - HasDatadog
+                  - [!Ref AppSecretArn, !Ref DatadogApiKeySecretArn]
+                  - [!Ref AppSecretArn]
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: flying-dev-task
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+
+  # ---------------------------------------------------------------------------
+  # The service
+  # ---------------------------------------------------------------------------
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/flying-dev
+      RetentionInDays: !Ref LogRetentionDays
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: flying-dev
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: flying-dev
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Ref ContainerImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PORT
+              Value: "3000"
+            - Name: HOSTNAME
+              Value: 0.0.0.0
+            - Name: DD_ENV
+              Value: !Ref Environment
+            - Name: DD_SERVICE
+              Value: flying-dev
+            - !If
+              - HasDatadog
+              # awsvpc gives every container in the task the same network
+              # namespace, so the Agent really is on localhost. This variable
+              # is also the switch that turns tracing on at all: without it
+              # src/instrumentation.ts returns before loading dd-trace.
+              - Name: DD_AGENT_HOST
+                Value: 127.0.0.1
+              - !Ref AWS::NoValue
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom: !Sub "${AppSecretArn}:DATABASE_URL::"
+            - Name: DIRECT_URL
+              ValueFrom: !Sub "${AppSecretArn}:DIRECT_URL::"
+            - Name: SESSION_SECRET
+              ValueFrom: !Sub "${AppSecretArn}:SESSION_SECRET::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: app
+
+        - !If
+          - HasDatadog
+          - Name: datadog-agent
+            Image: public.ecr.aws/datadog/agent:7
+            # Not essential: if the Agent dies, the site stays up and loses
+            # observability. The other way round would mean a Datadog outage
+            # could take bookings offline.
+            Essential: false
+            PortMappings:
+              - ContainerPort: 8126
+                Protocol: tcp
+            Environment:
+              - Name: ECS_FARGATE
+                Value: "true"
+              - Name: DD_SITE
+                Value: !Ref DatadogSite
+              - Name: DD_APM_ENABLED
+                Value: "true"
+              # The app container reaches the Agent over the shared loopback,
+              # which the Agent counts as non-local. Without this it binds to
+              # its own loopback only and quietly accepts nothing.
+              - Name: DD_APM_NON_LOCAL_TRAFFIC
+                Value: "true"
+              - Name: DD_ENV
+                Value: !Ref Environment
+              - Name: DD_SERVICE
+                Value: flying-dev
+            Secrets:
+              - Name: DD_API_KEY
+                ValueFrom: !Ref DatadogApiKeySecretArn
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref LogGroup
+                awslogs-region: !Ref AWS::Region
+                awslogs-stream-prefix: datadog
+          - !Ref AWS::NoValue
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: HttpListener
+    Properties:
+      ServiceName: flying-dev
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      # Migrations run at start-up, so a task needs longer than usual before
+      # its first health check counts against it.
+      HealthCheckGracePeriodSeconds: 120
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          # A task that cannot migrate crashes on boot. Without this the
+          # service would sit in a crash loop indefinitely; with it, ECS gives
+          # up and puts the previous version back.
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # Required to pull the image without a NAT gateway.
+          AssignPublicIp: ENABLED
+          Subnets: [!Ref SubnetA, !Ref SubnetB]
+          SecurityGroups: [!Ref ServiceSecurityGroup]
+      LoadBalancers:
+        - ContainerName: app
+          ContainerPort: 3000
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  LoadBalancerDomain:
+    Description: Point your domain's CNAME (or an ALIAS record) here.
+    Value: !GetAtt LoadBalancer.DNSName
+  HealthUrl:
+    Description: Should return 200 with database "ok".
+    Value: !Sub
+      - "${scheme}://${host}/api/health"
+      - scheme: !If [HasCertificate, https, http]
+        host: !GetAtt LoadBalancer.DNSName
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt Service.Name

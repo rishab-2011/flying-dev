@@ -81,13 +81,23 @@ status.
 When the Cloud API is ready, implement the `cloudApi` driver in that file and
 change `activeDriver`. Nothing else in the app changes.
 
-## Deploying (Netlify + Neon, both free)
+## Deploying
+
+Two supported targets, both on Neon:
+
+- **AWS (ECS Fargate)** — [`infra/README.md`](infra/README.md). Push to `main`
+  and it deploys itself. Costs about $35/month and is the only option that can
+  run the Datadog Agent, so it is the only one that gives server-side traces.
+- **Netlify** — the walkthrough below. Free, and the fastest way to get a live
+  URL, but it cannot run an Agent, so Datadog sees the browser and nothing else.
+
+### Netlify + Neon (both free)
 
 Netlify's free tier permits commercial use; Vercel's free Hobby plan does not,
 so this project is set up for Netlify. Total cost: ₹0, plus a domain if you want
 one.
 
-### 1. Create the database (Neon)
+#### 1. Create the database (Neon)
 
 1. Sign up at neon.tech and create a project in the **Singapore** region — it's
    the closest to Delhi NCR.
@@ -98,7 +108,7 @@ one.
    The app opens a connection per request, so it must go through the pooler;
    migrations can't run through a pooler, which is why both are needed.
 
-### 2. Deploy the site (Netlify)
+#### 2. Deploy the site (Netlify)
 
 1. Sign up at netlify.com, choose **Add new site → Import an existing project**,
    and pick this repository.
